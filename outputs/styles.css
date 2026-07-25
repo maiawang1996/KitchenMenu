@@ -615,6 +615,57 @@ h3 {
   border-radius: 22px;
 }
 
+.cropper {
+  display: grid;
+  gap: 14px;
+}
+
+.crop-stage {
+  position: relative;
+  width: min(100%, 320px);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 24px;
+  background: #e9dfcf;
+  box-shadow: inset 0 0 0 1px rgba(137, 122, 100, 0.14);
+  touch-action: none;
+  cursor: grab;
+}
+
+.crop-stage:active {
+  cursor: grabbing;
+}
+
+.crop-stage img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  max-height: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.crop-controls {
+  display: grid;
+  gap: 8px;
+}
+
+.crop-controls label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.crop-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .media-placeholder {
   display: grid;
   place-items: center;

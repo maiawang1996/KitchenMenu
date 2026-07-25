@@ -73,6 +73,7 @@ function createDefaultState() {
 
 let recipes = cloneData(defaultRecipes);
 let state = createDefaultState();
+let imageCropState = null;
 
 const view = document.querySelector("#view");
 const pageTitle = document.querySelector("#pageTitle");
@@ -339,8 +340,8 @@ function recipeImageSrc(recipe) {
   return recipe?.image || "";
 }
 
-function recipeMedia(recipe, variant = "recipe", alt = "", extraAttrs = "") {
-  const src = recipeImageSrc(recipe);
+function recipeMedia(recipe, variant = "recipe", alt = "", extraAttrs = "", overrideSrc = "") {
+  const src = overrideSrc || recipeImageSrc(recipe);
   const imageClass = variant === "plan-card" ? "plan-card-media" : `${variant}-image`;
   if (src) {
     return `<img class="${imageClass}" ${extraAttrs} src="${escapeHtml(src)}" alt="${escapeHtml(alt || recipe?.name || "")}" />`;
@@ -374,6 +375,56 @@ function fileToDataUrl(file) {
     reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getRecipeFormDraft(form) {
+  const formData = new FormData(form);
+  const activeTag = sheet.querySelector("[data-form-tag].active")?.dataset.formTag || "快菜";
+  return {
+    name: formData.get("name").toString().trim(),
+    tag: activeTag,
+    ingredients: formData
+      .get("ingredients")
+      .toString()
+      .split(/[、,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    steps: formData
+      .get("steps")
+      .toString()
+      .split(/\n/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    image: form.dataset.currentImage || "",
+  };
+}
+
+function recipeFormDefaults(recipe = null, draft = null) {
+  return {
+    name: draft?.name ?? recipe?.name ?? "",
+    tag: draft?.tag ?? recipe?.tag ?? "快菜",
+    ingredients: draft?.ingredients ?? recipe?.ingredients ?? [],
+    steps: draft?.steps ?? recipe?.steps ?? [],
+    image: draft?.image ?? recipeImageSrc(recipe) ?? "",
+  };
+}
+
+function cropImageToSquare(imageEl, cropState) {
+  const canvas = document.createElement("canvas");
+  const size = 1024;
+  const scale = cropState.baseScale * cropState.zoom;
+  const sourceX = clamp(-cropState.offsetX / scale, 0, imageEl.naturalWidth);
+  const sourceY = clamp(-cropState.offsetY / scale, 0, imageEl.naturalHeight);
+  const sourceSize = clamp(cropState.frameSize / scale, 1, Math.min(imageEl.naturalWidth - sourceX, imageEl.naturalHeight - sourceY));
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(imageEl, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+  return canvas.toDataURL("image/jpeg", 0.92);
 }
 
 function daysSince(dateString) {
@@ -806,16 +857,102 @@ function renderJournal() {
   `;
 }
 
-function openRecipeSheet(recipe = null) {
+function syncCropPreview() {
+  if (!imageCropState) return;
+  const image = sheet.querySelector("[data-crop-image]");
+  const stage = sheet.querySelector("[data-crop-stage]");
+  if (!image || !stage) return;
+  const scale = imageCropState.baseScale * imageCropState.zoom;
+  const displayWidth = imageCropState.imageWidth * scale;
+  const displayHeight = imageCropState.imageHeight * scale;
+  const minOffsetX = imageCropState.frameSize - displayWidth;
+  const minOffsetY = imageCropState.frameSize - displayHeight;
+  imageCropState.offsetX = clamp(imageCropState.offsetX, minOffsetX, 0);
+  imageCropState.offsetY = clamp(imageCropState.offsetY, minOffsetY, 0);
+  image.style.width = `${displayWidth}px`;
+  image.style.height = `${displayHeight}px`;
+  image.style.transform = `translate(${imageCropState.offsetX}px, ${imageCropState.offsetY}px)`;
+  const zoomInput = sheet.querySelector("[data-crop-zoom]");
+  if (zoomInput) zoomInput.value = String(imageCropState.zoom);
+  const help = sheet.querySelector("[data-crop-help]");
+  if (help) help.textContent = `${Math.round(imageCropState.zoom * 100)}%`;
+}
+
+function openImageCropSheet(source, draft, recipeId) {
+  imageCropState = {
+    source,
+    draft,
+    recipeId,
+    imageWidth: 0,
+    imageHeight: 0,
+    frameSize: 0,
+    baseScale: 1,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    dragging: null,
+  };
+  openSheet(`
+    <h2>裁剪图片</h2>
+    <p class="muted">拖动图片调整构图，滑块控制缩放，最后会保存成正方形。</p>
+    <div class="cropper">
+      <div class="crop-stage" data-crop-stage>
+        <img data-crop-image src="${escapeHtml(source)}" alt="裁剪图片预览" />
+      </div>
+      <div class="crop-controls">
+        <label>缩放 <span data-crop-help>100%</span></label>
+        <input data-crop-zoom type="range" min="1" max="2.6" step="0.01" value="1" />
+      </div>
+      <div class="button-row">
+        <button class="ghost-btn" type="button" data-action="cancelCrop">取消</button>
+        <button class="primary-btn" type="button" data-action="applyCrop">使用裁剪</button>
+      </div>
+    </div>
+  `);
+
+  const stage = sheet.querySelector("[data-crop-stage]");
+  const image = sheet.querySelector("[data-crop-image]");
+  const slider = sheet.querySelector("[data-crop-zoom]");
+
+  const initializeCrop = () => {
+    if (!stage || !imageCropState || !image.naturalWidth || !image.naturalHeight) return;
+    imageCropState.frameSize = stage.getBoundingClientRect().width;
+    if (!imageCropState.frameSize) {
+      requestAnimationFrame(initializeCrop);
+      return;
+    }
+    imageCropState.imageWidth = image.naturalWidth;
+    imageCropState.imageHeight = image.naturalHeight;
+    imageCropState.baseScale = Math.max(imageCropState.frameSize / imageCropState.imageWidth, imageCropState.frameSize / imageCropState.imageHeight);
+    imageCropState.zoom = 1;
+    imageCropState.offsetX = (imageCropState.frameSize - imageCropState.imageWidth * imageCropState.baseScale) / 2;
+    imageCropState.offsetY = (imageCropState.frameSize - imageCropState.imageHeight * imageCropState.baseScale) / 2;
+    syncCropPreview();
+  };
+
+  if (image.complete) {
+    requestAnimationFrame(initializeCrop);
+  } else {
+    image.addEventListener("load", initializeCrop, { once: true });
+  }
+
+  requestAnimationFrame(() => {
+    imageCropState.frameSize = stage?.getBoundingClientRect().width || 0;
+    if (image.complete) initializeCrop();
+  });
+}
+
+function openRecipeSheet(recipe = null, draft = null) {
   state.editingRecipeId = recipe?.id ?? null;
+  const values = recipeFormDefaults(recipe, draft);
   openSheet(`
     <h2>${recipe ? "编辑菜谱" : "新增菜谱"}</h2>
-    <form class="form" id="recipeForm">
-      <div class="field"><label>菜名</label><input name="name" required placeholder="例如：红烧牛肉" value="${escapeHtml(recipe?.name ?? "")}" /></div>
+    <form class="form" id="recipeForm" data-current-image="${escapeHtml(values.image)}">
+      <div class="field"><label>菜名</label><input name="name" required placeholder="例如：红烧牛肉" value="${escapeHtml(values.name)}" /></div>
       <div class="field">
         <label>图片</label>
         <div class="image-preview">
-          ${recipeMedia(recipe, "image-preview", "菜谱图片预览", 'data-image-preview')}
+          ${recipeMedia(recipe, "image-preview", "菜谱图片预览", 'data-image-preview', values.image)}
         </div>
         <input name="image" type="file" accept="image/*" data-image-input />
         <p class="muted">可以从手机相册选图，也可以直接拍照；留空则保留当前图片。</p>
@@ -823,12 +960,12 @@ function openRecipeSheet(recipe = null) {
       <div class="field">
         <label>标签</label>
         <div class="segmented">
-          <button type="button" class="${recipe?.tag === "快菜" || !recipe ? "active" : ""}" data-form-tag="快菜">快菜</button>
-          <button type="button" class="${recipe?.tag === "慢菜" ? "active" : ""}" data-form-tag="慢菜">慢菜</button>
+          <button type="button" class="${values.tag === "快菜" ? "active" : ""}" data-form-tag="快菜">快菜</button>
+          <button type="button" class="${values.tag === "慢菜" ? "active" : ""}" data-form-tag="慢菜">慢菜</button>
         </div>
       </div>
-      <div class="field"><label>原材料</label><textarea name="ingredients" required placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(recipe?.ingredients.join("、") ?? "")}</textarea></div>
-      <div class="field"><label>做法</label><textarea name="steps" required placeholder="每一步换一行">${escapeHtml(recipe?.steps.join("\n") ?? "")}</textarea></div>
+      <div class="field"><label>原材料</label><textarea name="ingredients" required placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(values.ingredients.join("、"))}</textarea></div>
+      <div class="field"><label>做法</label><textarea name="steps" required placeholder="每一步换一行">${escapeHtml(values.steps.join("\n"))}</textarea></div>
       <button class="primary-btn" type="submit">保存菜谱</button>
     </form>
   `);
@@ -950,6 +1087,26 @@ sheet.addEventListener("click", (event) => {
     sheet.querySelectorAll("[data-form-tag]").forEach((button) => button.classList.remove("active"));
     tagButton.classList.add("active");
   }
+  const cancelCropButton = event.target.closest("[data-action='cancelCrop']");
+  if (cancelCropButton) {
+    const draft = imageCropState?.draft || null;
+    const recipe = imageCropState?.recipeId ? recipeById(imageCropState.recipeId) : null;
+    imageCropState = null;
+    openRecipeSheet(recipe, draft);
+    return;
+  }
+  const applyCropButton = event.target.closest("[data-action='applyCrop']");
+  if (applyCropButton && imageCropState) {
+    const image = sheet.querySelector("[data-crop-image]");
+    const draft = imageCropState.draft || {};
+    const recipe = imageCropState.recipeId ? recipeById(imageCropState.recipeId) : null;
+    if (image && image.complete && image.naturalWidth && image.naturalHeight) {
+      const cropped = cropImageToSquare(image, imageCropState);
+      imageCropState = null;
+      openRecipeSheet(recipe, { ...draft, image: cropped });
+    }
+    return;
+  }
   const deleteStockButton = event.target.closest("[data-action='deleteStock']");
   if (deleteStockButton && state.editingStockId) {
     state.stock = state.stock.filter((item) => item.id !== state.editingStockId);
@@ -961,11 +1118,61 @@ sheet.addEventListener("click", (event) => {
 
 sheet.addEventListener("change", async (event) => {
   if (!event.target.matches("[data-image-input]")) return;
-  const preview = sheet.querySelector("[data-image-preview]");
   const file = event.target.files?.[0];
-  if (!preview || !file) return;
+  const form = event.target.closest("form");
+  const draft = form ? getRecipeFormDraft(form) : null;
+  const recipe = state.editingRecipeId ? recipeById(state.editingRecipeId) : null;
+  if (!file || !draft) return;
   const dataUrl = await fileToDataUrl(file);
-  preview.outerHTML = `<img class="image-preview-image" data-image-preview src="${escapeHtml(dataUrl)}" alt="菜谱图片预览" />`;
+  openImageCropSheet(dataUrl, draft, recipe?.id ?? null);
+  event.target.value = "";
+});
+
+sheet.addEventListener("input", (event) => {
+  if (!imageCropState) return;
+  if (event.target.matches("[data-crop-zoom]")) {
+    const nextZoom = Number(event.target.value);
+    const previousScale = imageCropState.baseScale * imageCropState.zoom;
+    const centerX = (imageCropState.frameSize / 2 - imageCropState.offsetX) / previousScale;
+    const centerY = (imageCropState.frameSize / 2 - imageCropState.offsetY) / previousScale;
+    imageCropState.zoom = nextZoom;
+    const nextScale = imageCropState.baseScale * imageCropState.zoom;
+    imageCropState.offsetX = imageCropState.frameSize / 2 - centerX * nextScale;
+    imageCropState.offsetY = imageCropState.frameSize / 2 - centerY * nextScale;
+    syncCropPreview();
+  }
+});
+
+sheet.addEventListener("pointerdown", (event) => {
+  if (!imageCropState) return;
+  const stage = event.target.closest("[data-crop-stage]");
+  if (!stage) return;
+  stage.setPointerCapture(event.pointerId);
+  imageCropState.dragging = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startOffsetX: imageCropState.offsetX,
+    startOffsetY: imageCropState.offsetY,
+  };
+});
+
+sheet.addEventListener("pointermove", (event) => {
+  if (!imageCropState?.dragging || event.pointerId !== imageCropState.dragging.pointerId) return;
+  const dx = event.clientX - imageCropState.dragging.startX;
+  const dy = event.clientY - imageCropState.dragging.startY;
+  imageCropState.offsetX = imageCropState.dragging.startOffsetX + dx;
+  imageCropState.offsetY = imageCropState.dragging.startOffsetY + dy;
+  syncCropPreview();
+});
+
+sheet.addEventListener("pointerup", (event) => {
+  if (!imageCropState?.dragging || event.pointerId !== imageCropState.dragging.pointerId) return;
+  imageCropState.dragging = null;
+});
+
+sheet.addEventListener("pointercancel", () => {
+  if (imageCropState) imageCropState.dragging = null;
 });
 
 sheet.addEventListener("submit", async (event) => {
@@ -988,7 +1195,7 @@ sheet.addEventListener("submit", async (event) => {
       .filter(Boolean);
     const activeTag = sheet.querySelector("[data-form-tag].active").dataset.formTag;
     const imageFile = form.get("image");
-    const existingImage = state.editingRecipeId ? recipeImageSrc(recipeById(state.editingRecipeId)) : "";
+    const existingImage = event.target.dataset.currentImage || (state.editingRecipeId ? recipeImageSrc(recipeById(state.editingRecipeId)) : "");
     const image = imageFile instanceof File && imageFile.size > 0 ? await fileToDataUrl(imageFile) : existingImage;
     const payload = {
       name,
