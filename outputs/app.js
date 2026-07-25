@@ -15,7 +15,6 @@ const defaultRecipes = [
     id: "tomato-egg",
     name: "番茄炒蛋",
     tag: "快菜",
-    minutes: 12,
     favorite: true,
     image: "./assets/tomato-egg-jelly.png",
     ingredients: ["番茄", "鸡蛋", "葱"],
@@ -25,11 +24,10 @@ const defaultRecipes = [
     id: "beef-potato",
     name: "土豆牛肉",
     tag: "慢菜",
-    minutes: 45,
     favorite: false,
     image: "./assets/beef-potato-jelly.png",
     ingredients: ["牛肉", "土豆", "胡萝卜", "洋葱"],
-    steps: ["牛肉焯水，土豆和胡萝卜切块。", "洋葱炒香后加入牛肉和调味料。", "加水炖 35 分钟，放入土豆收汁。"],
+    steps: ["牛肉焯水，土豆和胡萝卜切块。", "洋葱炒香后加入牛肉和调味料。", "加水炖至收汁，放入土豆。"],
   },
 ];
 
@@ -467,7 +465,7 @@ function reasonsFor(recipe) {
   return [
     recent ? "最近吃过，但库存匹配度高" : "最近没有吃过，适合换换口味",
     matched.length ? `家里已有：${matched.join("、")}` : "缺的食材少，适合加入购物清单",
-    `${recipe.minutes} 分钟左右完成，属于${recipe.tag}`,
+    `属于${recipe.tag}，做起来比较顺手`,
   ];
 }
 
@@ -526,7 +524,7 @@ function recipeCard(recipe, { compact = false } = {}) {
       </div>
       <div class="recipe-body">
         <h3>${recipe.name}</h3>
-        ${compact ? "" : `<div class="tag-row"><span class="tag ${recipe.tag === "慢菜" ? "slow" : ""}">${recipe.tag}</span>${recipe.favorite ? '<span class="tag blue">收藏</span>' : ""}</div><p class="recipe-meta">${recipe.ingredients.join("、")} · ${recipe.minutes} 分钟</p>`}
+        ${compact ? "" : `<div class="tag-row"><span class="tag ${recipe.tag === "慢菜" ? "slow" : ""}">${recipe.tag}</span>${recipe.favorite ? '<span class="tag blue">收藏</span>' : ""}</div><p class="recipe-meta">${recipe.ingredients.join("、")}</p>`}
       </div>
     </article>
   `;
@@ -571,10 +569,10 @@ function renderToday() {
                 <div class="plan-card-image">
                   ${recipeMedia(entry.recipe, "plan-card", entry.recipe.name)}
                 </div>
-                <div class="plan-card-body">
+                  <div class="plan-card-body">
                   <p class="plan-label">${entry.label}</p>
                   <h3>${entry.recipe.name}</h3>
-                  <p class="muted">${entry.recipe.tag} · ${entry.recipe.minutes} 分钟</p>
+                  <p class="muted">${entry.recipe.tag}</p>
                 </div>
               </article>
               `,
@@ -648,7 +646,7 @@ function renderRecipes() {
                 </div>
                 <div class="recipe-body">
                   <h3>${recipe.name}</h3>
-                  <p class="recipe-meta">${recipe.tag} · ${recipe.minutes} 分钟</p>
+                  <p class="recipe-meta">${recipe.tag}</p>
                 </div>
               </article>
             `,
@@ -673,7 +671,6 @@ function renderRecipeDetail(id) {
         <h2>${recipe.name}</h2>
         <div class="tag-row">
           <span class="tag ${recipe.tag === "慢菜" ? "slow" : ""}">${recipe.tag}</span>
-          <span class="tag blue">${recipe.minutes} 分钟</span>
         </div>
       </div>
     </section>
@@ -685,7 +682,11 @@ function renderRecipeDetail(id) {
 
     <section class="section paper-card">
       <h2>做法</h2>
-      <ol class="step-list">${recipe.steps.map((step, index) => `<li><span>${index + 1}</span><p>${step}</p></li>`).join("")}</ol>
+      ${
+        recipe.steps.length
+          ? `<ol class="step-list">${recipe.steps.map((step, index) => `<li><span>${index + 1}</span><p>${step}</p></li>`).join("")}</ol>`
+          : emptyIllustration("还没有写做法", "这道菜先记食材也可以，之后再补步骤。")
+      }
     </section>
 
     <div class="sticky-action">
@@ -965,7 +966,7 @@ function openRecipeSheet(recipe = null, draft = null) {
         </div>
       </div>
       <div class="field"><label>原材料</label><textarea name="ingredients" required placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(values.ingredients.join("、"))}</textarea></div>
-      <div class="field"><label>做法</label><textarea name="steps" required placeholder="每一步换一行">${escapeHtml(values.steps.join("\n"))}</textarea></div>
+      <div class="field"><label>做法（可选）</label><textarea name="steps" placeholder="每一步换一行，留空也可以">${escapeHtml(values.steps.join("\n"))}</textarea></div>
       <button class="primary-btn" type="submit">保存菜谱</button>
     </form>
   `);
@@ -1200,7 +1201,6 @@ sheet.addEventListener("submit", async (event) => {
     const payload = {
       name,
       tag: activeTag,
-      minutes: activeTag === "快菜" ? 20 : 45,
       favorite: false,
       ingredients,
       steps,
