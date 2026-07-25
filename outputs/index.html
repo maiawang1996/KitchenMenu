@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AI 家庭菜单</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%B3%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css?v=20260725k" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <p class="eyebrow" id="todayText">今天</p>
+        </div>
+        <div class="topbar-center">
+          <h1 id="pageTitle">今天在厨房</h1>
+        </div>
+        <div class="topbar-right">
+          <button class="icon-btn" id="addRecipeTop" aria-label="新增菜谱"></button>
+        </div>
+      </header>
+
+      <section id="view" class="view"></section>
+
+      <nav class="tabbar" aria-label="底部导航">
+        <button class="tab active" data-tab="today" data-icon="sun"><small>今天</small></button>
+        <button class="tab" data-tab="recipes" data-icon="book"><small>菜谱</small></button>
+        <button class="tab" data-tab="plan" data-icon="calendar"><small>菜单</small></button>
+        <button class="tab" data-tab="stock" data-icon="pantry"><small>库存</small></button>
+        <button class="tab" data-tab="journal" data-icon="note"><small>札记</small></button>
+      </nav>
+    </main>
+
+    <div class="sheet" id="sheet" aria-hidden="true">
+      <div class="sheet-panel">
+        <div class="sheet-handle"></div>
+        <div id="sheetContent"></div>
+      </div>
+    </div>
+
+    <script src="./app.js?v=20260725k"></script>
+  </body>
+</html>
