@@ -6,7 +6,11 @@ const TAB_META = {
   stock: { label: "库存", icon: "pantry" },
 };
 
-const recipes = [
+const DB_NAME = "KitchenMenuDB";
+const DB_STORE = "snapshot";
+const DB_KEY = "app";
+
+const defaultRecipes = [
   {
     id: "tomato-egg",
     name: "番茄炒蛋",
@@ -29,7 +33,12 @@ const recipes = [
   },
 ];
 
-const state = {
+function cloneData(value) {
+  return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+}
+
+function createDefaultState() {
+  return {
   tab: "today",
   detailId: null,
   editingRecipeId: null,
@@ -59,7 +68,11 @@ const state = {
     { date: "周日", lunch: "", dinner: "" },
   ],
   purchased: new Set(["米饭"]),
-};
+  };
+}
+
+let recipes = cloneData(defaultRecipes);
+let state = createDefaultState();
 
 const view = document.querySelector("#view");
 const pageTitle = document.querySelector("#pageTitle");
@@ -68,6 +81,128 @@ const sheet = document.querySelector("#sheet");
 const sheetContent = document.querySelector("#sheetContent");
 
 todayText.textContent = currentDateLabel();
+
+let dbPromise = null;
+
+function getDatabase() {
+  if (!("indexedDB" in window)) return Promise.resolve(null);
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) {
+          db.createObjectStore(DB_STORE);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Failed to open database"));
+    });
+  }
+  return dbPromise;
+}
+
+function readFallbackSnapshot() {
+  try {
+    const raw = localStorage.getItem(DB_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFallbackSnapshot(snapshot) {
+  try {
+    localStorage.setItem(DB_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage failures in private mode or quota errors.
+  }
+}
+
+async function readSnapshot() {
+  const fallback = readFallbackSnapshot();
+  try {
+    const db = await getDatabase();
+    if (!db) return fallback;
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readonly");
+      const request = tx.objectStore(DB_STORE).get(DB_KEY);
+      request.onsuccess = () => resolve(request.result || fallback);
+      request.onerror = () => reject(request.error || new Error("Failed to read database"));
+    });
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeSnapshot(snapshot) {
+  try {
+    const db = await getDatabase();
+    if (!db) {
+      writeFallbackSnapshot(snapshot);
+      return;
+    }
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_STORE, "readwrite");
+      tx.objectStore(DB_STORE).put(snapshot, DB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("Failed to write database"));
+    });
+  } catch {
+    writeFallbackSnapshot(snapshot);
+  }
+}
+
+function serializeState() {
+  return {
+    stock: cloneData(state.stock),
+    cooked: cloneData(state.cooked),
+    weekPlan: cloneData(state.weekPlan),
+    purchased: Array.from(state.purchased),
+  };
+}
+
+function serializeSnapshot() {
+  return {
+    recipes: cloneData(recipes),
+    state: serializeState(),
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function applySnapshot(snapshot) {
+  if (!snapshot) return false;
+  if (Array.isArray(snapshot.recipes)) {
+    recipes = cloneData(snapshot.recipes);
+  }
+  const nextState = createDefaultState();
+  if (snapshot.state) {
+    if (Array.isArray(snapshot.state.stock)) nextState.stock = cloneData(snapshot.state.stock);
+    if (Array.isArray(snapshot.state.cooked)) nextState.cooked = cloneData(snapshot.state.cooked);
+    if (Array.isArray(snapshot.state.weekPlan)) nextState.weekPlan = cloneData(snapshot.state.weekPlan);
+    if (Array.isArray(snapshot.state.purchased)) nextState.purchased = new Set(snapshot.state.purchased);
+  }
+  state.stock = nextState.stock;
+  state.cooked = nextState.cooked;
+  state.weekPlan = nextState.weekPlan;
+  state.purchased = nextState.purchased;
+  return true;
+}
+
+async function hydrateApp() {
+  const snapshot = await readSnapshot();
+  if (snapshot) {
+    applySnapshot(snapshot);
+  } else {
+    await writeSnapshot(serializeSnapshot());
+  }
+}
+
+function saveApp() {
+  const snapshot = serializeSnapshot();
+  writeFallbackSnapshot(snapshot);
+  void writeSnapshot(snapshot);
+}
 
 function iconSvg(name) {
   const icons = {
@@ -298,6 +433,7 @@ function openDetail(id) {
 
 function markCooked(id) {
   state.cooked.unshift({ recipeId: id, date: todayKey() });
+  saveApp();
   showToast(`已记录：${recipeById(id).name}`);
   setTab("today");
 }
@@ -758,6 +894,7 @@ view.addEventListener("click", (event) => {
     }
     if (action === "deleteStock" && state.editingStockId) {
       state.stock = state.stock.filter((item) => item.id !== state.editingStockId);
+      saveApp();
       closeSheet();
       render();
     }
@@ -788,12 +925,14 @@ view.addEventListener("change", (event) => {
     const day = state.weekPlan[Number(event.target.dataset.planIndex)];
     day[event.target.dataset.meal] = event.target.value;
     renderPlan();
+    saveApp();
   }
   if (event.target.matches("[data-shopping]")) {
     const name = event.target.dataset.shopping;
     if (event.target.checked) state.purchased.add(name);
     else state.purchased.delete(name);
     renderPlan();
+    saveApp();
   }
 });
 
@@ -807,6 +946,7 @@ sheet.addEventListener("click", (event) => {
   const deleteStockButton = event.target.closest("[data-action='deleteStock']");
   if (deleteStockButton && state.editingStockId) {
     state.stock = state.stock.filter((item) => item.id !== state.editingStockId);
+    saveApp();
     closeSheet();
     render();
   }
@@ -863,6 +1003,7 @@ sheet.addEventListener("submit", async (event) => {
       state.tab = "today";
       document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === "today"));
     }
+    saveApp();
     closeSheet();
     render();
     showToast(isEditingRecipe ? "菜谱已更新" : "菜谱已保存");
@@ -884,10 +1025,13 @@ sheet.addEventListener("submit", async (event) => {
       });
     }
     state.editingStockId = null;
+    saveApp();
     closeSheet();
     render();
     showToast("库存已保存");
   }
 });
 
-render();
+void hydrateApp().then(() => {
+  render();
+});
