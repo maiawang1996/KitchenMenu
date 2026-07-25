@@ -35,6 +35,12 @@ function cloneData(value) {
   return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
 }
 
+function normalizeRecipe(recipe) {
+  if (!recipe) return recipe;
+  const { minutes, ...rest } = recipe;
+  return rest;
+}
+
 function createDefaultState() {
   return {
   tab: "today",
@@ -163,7 +169,7 @@ function serializeState() {
 
 function serializeSnapshot() {
   return {
-    recipes: cloneData(recipes),
+    recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
     state: serializeState(),
     savedAt: new Date().toISOString(),
   };
@@ -172,7 +178,7 @@ function serializeSnapshot() {
 function applySnapshot(snapshot) {
   if (!snapshot) return false;
   if (Array.isArray(snapshot.recipes)) {
-    recipes = cloneData(snapshot.recipes);
+    recipes = cloneData(snapshot.recipes).map((recipe) => normalizeRecipe(recipe));
   }
   const nextState = createDefaultState();
   if (snapshot.state) {
