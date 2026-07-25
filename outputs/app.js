@@ -9,6 +9,7 @@ const TAB_META = {
 const DB_NAME = "KitchenMenuDB";
 const DB_STORE = "snapshot";
 const DB_KEY = "app";
+const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
 
 const defaultRecipes = [
   {
@@ -39,6 +40,14 @@ function normalizeRecipe(recipe) {
   if (!recipe) return recipe;
   const { minutes, ...rest } = recipe;
   return rest;
+}
+
+function normalizeSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  if (Array.isArray(snapshot.recipes)) {
+    snapshot.recipes = snapshot.recipes.map((recipe) => normalizeRecipe(recipe));
+  }
+  return snapshot;
 }
 
 function createDefaultState() {
@@ -158,6 +167,37 @@ async function writeSnapshot(snapshot) {
   }
 }
 
+async function readCloudSnapshot() {
+  try {
+    const response = await fetch(CLOUD_SNAPSHOT_ENDPOINT, {
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return normalizeSnapshot(payload?.snapshot || null);
+  } catch {
+    return null;
+  }
+}
+
+async function writeCloudSnapshot(snapshot) {
+  try {
+    const response = await fetch(CLOUD_SNAPSHOT_ENDPOINT, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ snapshot: normalizeSnapshot(cloneData(snapshot)) }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function serializeState() {
   return {
     stock: cloneData(state.stock),
@@ -195,18 +235,33 @@ function applySnapshot(snapshot) {
 }
 
 async function hydrateApp() {
-  const snapshot = await readSnapshot();
-  if (snapshot) {
-    applySnapshot(snapshot);
-  } else {
-    await writeSnapshot(serializeSnapshot());
+  const cloudSnapshot = await readCloudSnapshot();
+  if (cloudSnapshot) {
+    applySnapshot(cloudSnapshot);
+    const snapshot = serializeSnapshot();
+    writeFallbackSnapshot(snapshot);
+    void writeSnapshot(snapshot);
+    return;
   }
+
+  const localSnapshot = await readSnapshot();
+  if (localSnapshot) {
+    applySnapshot(localSnapshot);
+    void writeCloudSnapshot(localSnapshot);
+    return;
+  }
+
+  const snapshot = serializeSnapshot();
+  writeFallbackSnapshot(snapshot);
+  void writeSnapshot(snapshot);
+  void writeCloudSnapshot(snapshot);
 }
 
 function saveApp() {
   const snapshot = serializeSnapshot();
   writeFallbackSnapshot(snapshot);
   void writeSnapshot(snapshot);
+  void writeCloudSnapshot(snapshot);
 }
 
 function registerPwa() {
