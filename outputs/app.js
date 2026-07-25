@@ -406,6 +406,24 @@ function doodlePanel(name, label = "") {
   `;
 }
 
+function sectionTitle(title, accent = "notebook") {
+  return `
+    <h2 class="section-title">
+      <span>${title}</span>
+      <span class="section-accent" aria-hidden="true">${doodleSvg(accent)}</span>
+    </h2>
+  `;
+}
+
+function sectionHeader(title, meta = "", accent = "notebook") {
+  return `
+    <div class="section-head">
+      ${sectionTitle(title, accent)}
+      ${meta ? `<span class="muted">${meta}</span>` : ""}
+    </div>
+  `;
+}
+
 function emptyIllustration(title, text, doodle = "notebook") {
   return `
     <div class="card empty empty-illustrated">
@@ -668,10 +686,7 @@ function renderToday() {
     </section>
 
     <section class="section">
-      <div class="section-head">
-        <h2>今日计划</h2>
-        <span class="muted">${plan.date}</span>
-      </div>
+      ${sectionHeader("今日计划", plan.date, "checklist")}
       <div class="journal-stack">
         ${planEntries
           .map(
@@ -693,10 +708,7 @@ function renderToday() {
     </section>
 
     <section class="section">
-      <div class="section-head">
-        <h2>库存提醒</h2>
-        <span class="muted">买了几天</span>
-      </div>
+      ${sectionHeader("库存提醒", "买了几天", "sprout")}
       <div class="paper-list">
         ${stocks
           .map(
@@ -716,10 +728,7 @@ function renderToday() {
     </section>
 
     <section class="section">
-      <div class="section-head">
-        <h2>收藏</h2>
-        <span class="muted">${favorites.length} 道</span>
-      </div>
+      ${sectionHeader("收藏", `${favorites.length} 道`, "tea")}
       <div class="recipe-grid recipe-grid-home">
         ${favorites.map((recipe) => recipeCard(recipe, { compact: true })).join("") || emptyIllustration("还没有收藏菜谱", "看到喜欢的菜就先存起来。", "tea")}
       </div>
@@ -825,7 +834,7 @@ function renderPlan() {
 
     <section class="section">
       <div class="section-head">
-        <h2>购物清单</h2>
+        ${sectionTitle("购物清单", "checklist")}
         <span class="muted">自动合并重复食材</span>
       </div>
       <div class="shopping-list">${shoppingItems().length ? shoppingItems().map(shoppingRow).join("") : emptyIllustration("购物清单还是空的", "把一周菜单先排上，就会自动生成。")}</div>
@@ -873,7 +882,7 @@ function renderStock() {
   view.innerHTML = `
     <section class="section">
       <div class="section-head">
-        <h2>家里现有</h2>
+        ${sectionTitle("家里现有", "sprout")}
         <button class="pill-btn" data-action="addStock">添加</button>
       </div>
       <div class="stock-list">
@@ -893,19 +902,14 @@ function renderStock() {
     </section>
 
     <section class="section">
-      <div class="section-head">
-        <h2>食材索引</h2>
-        <span class="muted">${ingredients.length} 种</span>
-      </div>
+      ${sectionHeader("食材索引", `${ingredients.length} 种`, "notebook")}
       <div class="tag-row">
         ${ingredients.map((name) => `<button class="chip tag ${selected === name ? "slow" : ""}" data-ingredient="${name}">${name}</button>`).join("")}
       </div>
     </section>
 
     <section class="section">
-      <div class="section-head">
-        <h2>${selected ? `${selected} 可以做` : "点一个食材看看"}</h2>
-      </div>
+      ${sectionHeader(selected ? `${selected} 可以做` : "点一个食材看看", "", "meal")}
       ${
         selected
           ? `<div class="recipe-grid">${recipes
@@ -955,7 +959,7 @@ function renderJournal() {
     </section>
 
     <section class="section">
-      <div class="section-head"><h2>本周观察</h2></div>
+      ${sectionHeader("本周观察", "", "tea")}
       <div class="stats-grid">
         <div class="card stat-card paper-card"><b>${state.cooked.length}</b><span class="muted">最近做饭次数</span></div>
         <div class="card stat-card paper-card"><b>${topIngredient[1]}</b><span class="muted">${topIngredient[0]} 使用次数</span></div>
@@ -963,7 +967,7 @@ function renderJournal() {
     </section>
 
     <section class="section paper-card">
-      <h2>饮食建议</h2>
+      ${sectionTitle("饮食建议", "sprout")}
       <p class="muted">本周最常做：${mostCookedId ? recipeById(mostCookedId).name : "暂无"}。牛肉类菜品偏多，可以在周菜单里增加青菜、番茄或香菇类菜，平衡蔬菜摄入。</p>
     </section>
   `;
