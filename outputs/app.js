@@ -188,11 +188,24 @@ async function readCloudSnapshot() {
       },
       cache: "no-store",
     });
-    if (!response.ok) return null;
-    const payload = await response.json();
-    return normalizeSnapshot(payload?.snapshot || null);
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: payload?.error || "无法读取云端快照",
+      };
+    }
+    return {
+      ok: true,
+      snapshot: normalizeSnapshot(payload?.snapshot || null),
+    };
   } catch {
-    return null;
+    return {
+      ok: false,
+      status: 0,
+      error: "网络请求失败",
+    };
   }
 }
 
@@ -205,9 +218,18 @@ async function writeCloudSnapshot(snapshot) {
       },
       body: JSON.stringify({ snapshot: normalizeSnapshot(cloneData(snapshot)) }),
     });
-    return response.ok;
+    const payload = await response.json().catch(() => null);
+    return {
+      ok: response.ok,
+      status: response.status,
+      error: payload?.error || (response.ok ? "" : "云端保存失败"),
+    };
   } catch {
-    return false;
+    return {
+      ok: false,
+      status: 0,
+      error: "网络请求失败",
+    };
   }
 }
 
@@ -248,7 +270,8 @@ function applySnapshot(snapshot) {
 }
 
 async function hydrateApp() {
-  const [cloudSnapshot, localSnapshot] = await Promise.all([readCloudSnapshot(), readSnapshot()]);
+  const [cloudResult, localSnapshot] = await Promise.all([readCloudSnapshot(), readSnapshot()]);
+  const cloudSnapshot = cloudResult?.ok ? cloudResult.snapshot : null;
   const snapshot = selectLatestSnapshot(localSnapshot, cloudSnapshot);
   if (snapshot) {
     applySnapshot(snapshot);
@@ -268,9 +291,9 @@ async function hydrateApp() {
 async function saveApp() {
   const snapshot = serializeSnapshot();
   writeFallbackSnapshot(snapshot);
-  const cloudOk = await writeCloudSnapshot(snapshot);
+  const cloudResult = await writeCloudSnapshot(snapshot);
   void writeSnapshot(snapshot);
-  return cloudOk;
+  return cloudResult;
 }
 
 function registerPwa() {
@@ -559,8 +582,8 @@ function openDetail(id) {
 
 async function markCooked(id) {
   state.cooked.unshift({ recipeId: id, date: todayKey() });
-  const cloudOk = await saveApp();
-  showToast(cloudOk ? `已记录：${recipeById(id).name}` : `已记录：${recipeById(id).name}，云同步未成功`);
+  const cloudResult = await saveApp();
+  showToast(cloudResult.ok ? `已记录：${recipeById(id).name}` : `已记录：${recipeById(id).name}，云端未同步：${cloudResult.error}`);
   setTab("today");
 }
 
@@ -1290,7 +1313,7 @@ sheet.addEventListener("submit", async (event) => {
     const cloudOk = await saveApp();
     closeSheet();
     render();
-    showToast(cloudOk ? (isEditingRecipe ? "菜谱已更新" : "菜谱已保存") : "已保存到本地，云同步未成功");
+    showToast(cloudOk.ok ? (isEditingRecipe ? "菜谱已更新" : "菜谱已保存") : `已保存到本地，云端未同步：${cloudOk.error}`);
   }
   if (event.target.id === "stockForm") {
     const form = new FormData(event.target);
@@ -1312,7 +1335,7 @@ sheet.addEventListener("submit", async (event) => {
     const cloudOk = await saveApp();
     closeSheet();
     render();
-    showToast(cloudOk ? "库存已保存" : "库存已保存到本地，云同步未成功");
+    showToast(cloudOk.ok ? "库存已保存" : `库存已保存到本地，云端未同步：${cloudOk.error}`);
   }
 });
 
