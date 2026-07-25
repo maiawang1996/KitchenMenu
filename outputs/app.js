@@ -50,6 +50,19 @@ function normalizeSnapshot(snapshot) {
   return snapshot;
 }
 
+function snapshotTime(snapshot) {
+  const value = snapshot?.savedAt || snapshot?.updatedAt || snapshot?.state?.savedAt || "";
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function selectLatestSnapshot(localSnapshot, cloudSnapshot) {
+  if (localSnapshot && cloudSnapshot) {
+    return snapshotTime(localSnapshot) >= snapshotTime(cloudSnapshot) ? localSnapshot : cloudSnapshot;
+  }
+  return localSnapshot || cloudSnapshot || null;
+}
+
 function createDefaultState() {
   return {
   tab: "today",
@@ -235,33 +248,29 @@ function applySnapshot(snapshot) {
 }
 
 async function hydrateApp() {
-  const cloudSnapshot = await readCloudSnapshot();
-  if (cloudSnapshot) {
-    applySnapshot(cloudSnapshot);
-    const snapshot = serializeSnapshot();
-    writeFallbackSnapshot(snapshot);
-    void writeSnapshot(snapshot);
+  const [cloudSnapshot, localSnapshot] = await Promise.all([readCloudSnapshot(), readSnapshot()]);
+  const snapshot = selectLatestSnapshot(localSnapshot, cloudSnapshot);
+  if (snapshot) {
+    applySnapshot(snapshot);
+    const normalized = serializeSnapshot();
+    writeFallbackSnapshot(normalized);
+    void writeSnapshot(normalized);
+    void writeCloudSnapshot(normalized);
     return;
   }
 
-  const localSnapshot = await readSnapshot();
-  if (localSnapshot) {
-    applySnapshot(localSnapshot);
-    void writeCloudSnapshot(localSnapshot);
-    return;
-  }
-
-  const snapshot = serializeSnapshot();
-  writeFallbackSnapshot(snapshot);
-  void writeSnapshot(snapshot);
-  void writeCloudSnapshot(snapshot);
+  const freshSnapshot = serializeSnapshot();
+  writeFallbackSnapshot(freshSnapshot);
+  void writeSnapshot(freshSnapshot);
+  void writeCloudSnapshot(freshSnapshot);
 }
 
-function saveApp() {
+async function saveApp() {
   const snapshot = serializeSnapshot();
   writeFallbackSnapshot(snapshot);
+  const cloudOk = await writeCloudSnapshot(snapshot);
   void writeSnapshot(snapshot);
-  void writeCloudSnapshot(snapshot);
+  return cloudOk;
 }
 
 function registerPwa() {
@@ -548,10 +557,10 @@ function openDetail(id) {
   render();
 }
 
-function markCooked(id) {
+async function markCooked(id) {
   state.cooked.unshift({ recipeId: id, date: todayKey() });
-  saveApp();
-  showToast(`已记录：${recipeById(id).name}`);
+  const cloudOk = await saveApp();
+  showToast(cloudOk ? `已记录：${recipeById(id).name}` : `已记录：${recipeById(id).name}，云同步未成功`);
   setTab("today");
 }
 
@@ -1079,11 +1088,11 @@ view.addEventListener("click", (event) => {
     if (action === "detail") {
       openDetail(id);
     }
-    if (action === "nextRecommend") {
+  if (action === "nextRecommend") {
       state.recommendationIndex += 1;
       render();
     }
-    if (action === "markCooked") markCooked(id);
+    if (action === "markCooked") void markCooked(id);
     if (action === "backRecipes") {
       state.detailId = null;
       render();
@@ -1100,7 +1109,7 @@ view.addEventListener("click", (event) => {
     }
     if (action === "deleteStock" && state.editingStockId) {
       state.stock = state.stock.filter((item) => item.id !== state.editingStockId);
-      saveApp();
+      void saveApp();
       closeSheet();
       render();
     }
@@ -1131,14 +1140,14 @@ view.addEventListener("change", (event) => {
     const day = state.weekPlan[Number(event.target.dataset.planIndex)];
     day[event.target.dataset.meal] = event.target.value;
     renderPlan();
-    saveApp();
+    void saveApp();
   }
   if (event.target.matches("[data-shopping]")) {
     const name = event.target.dataset.shopping;
     if (event.target.checked) state.purchased.add(name);
     else state.purchased.delete(name);
     renderPlan();
-    saveApp();
+    void saveApp();
   }
 });
 
@@ -1172,7 +1181,7 @@ sheet.addEventListener("click", (event) => {
   const deleteStockButton = event.target.closest("[data-action='deleteStock']");
   if (deleteStockButton && state.editingStockId) {
     state.stock = state.stock.filter((item) => item.id !== state.editingStockId);
-    saveApp();
+    void saveApp();
     closeSheet();
     render();
   }
@@ -1278,10 +1287,10 @@ sheet.addEventListener("submit", async (event) => {
       state.tab = "today";
       document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === "today"));
     }
-    saveApp();
+    const cloudOk = await saveApp();
     closeSheet();
     render();
-    showToast(isEditingRecipe ? "菜谱已更新" : "菜谱已保存");
+    showToast(cloudOk ? (isEditingRecipe ? "菜谱已更新" : "菜谱已保存") : "已保存到本地，云同步未成功");
   }
   if (event.target.id === "stockForm") {
     const form = new FormData(event.target);
@@ -1300,10 +1309,10 @@ sheet.addEventListener("submit", async (event) => {
       });
     }
     state.editingStockId = null;
-    saveApp();
+    const cloudOk = await saveApp();
     closeSheet();
     render();
-    showToast("库存已保存");
+    showToast(cloudOk ? "库存已保存" : "库存已保存到本地，云同步未成功");
   }
 });
 
