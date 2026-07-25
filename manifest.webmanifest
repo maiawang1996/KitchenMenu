@@ -1,0 +1,18 @@
+{
+  "name": "AI 家庭菜单",
+  "short_name": "KitchenMenu",
+  "description": "记录菜谱、图片和家庭厨房日常的小应用。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f2e8",
+  "theme_color": "#f7f2e8",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

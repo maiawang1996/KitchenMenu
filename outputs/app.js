@@ -204,6 +204,13 @@ function saveApp() {
   void writeSnapshot(snapshot);
 }
 
+function registerPwa() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
 function iconSvg(name) {
   const icons = {
     plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>',
@@ -1035,3 +1042,5 @@ sheet.addEventListener("submit", async (event) => {
 void hydrateApp().then(() => {
   render();
 });
+
+registerPwa();
