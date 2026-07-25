@@ -1,12 +1,12 @@
-const CACHE_NAME = "kitchenmenu-pwa-v1";
+const CACHE_NAME = "kitchenmenu-pwa-v2";
 const PRECACHE_URLS = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/pwa-icon.svg",
   "/outputs/index.html",
-  "/outputs/styles.css?v=20260725t",
-  "/outputs/app.js?v=20260725t",
+  "/outputs/styles.css?v=20260725u",
+  "/outputs/app.js?v=20260725u",
   "/outputs/assets/tomato-egg-jelly.png",
   "/outputs/assets/beef-potato-jelly.png",
   "/outputs/assets/family-dishes.png",

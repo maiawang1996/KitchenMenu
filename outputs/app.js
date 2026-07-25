@@ -491,6 +491,18 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function normalizeSearchTerm(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\u3000、,，.。·\-_/|()（）[\]{}'"“”‘’!?！？:：;；]/g, "");
+}
+
+function recipeSearchText(recipe) {
+  const steps = Array.isArray(recipe?.steps) ? recipe.steps.join("") : "";
+  return normalizeSearchTerm(`${recipe?.name || ""}${recipe?.ingredients?.join("") || ""}${recipe?.tag || ""}${steps}`);
+}
+
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -747,12 +759,13 @@ function renderRecipes() {
     renderRecipeDetail(state.detailId);
     return;
   }
+  const query = normalizeSearchTerm(state.search);
   const filtered = recipes.filter((recipe) => {
-    const text = `${recipe.name}${recipe.ingredients.join("")}${recipe.tag}`;
-    return text.includes(state.search.trim());
+    if (!query) return true;
+    return recipeSearchText(recipe).includes(query);
   });
   view.innerHTML = `
-    <section class="section">
+    <section class="section search-section">
       <input class="search" id="searchRecipe" value="${escapeHtml(state.search)}" placeholder="搜索菜名、食材或标签" />
     </section>
     <div class="recipe-grid recipe-grid-list">
