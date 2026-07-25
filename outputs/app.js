@@ -817,8 +817,8 @@ function openRecipeSheet(recipe = null) {
         <div class="image-preview">
           ${recipeMedia(recipe, "image-preview", "菜谱图片预览", 'data-image-preview')}
         </div>
-        <input name="image" type="file" accept="image/*" capture="environment" data-image-input />
-        <p class="muted">从手机相册或相机选择图片，留空则保留当前图片。</p>
+        <input name="image" type="file" accept="image/*" data-image-input />
+        <p class="muted">可以从手机相册选图，也可以直接拍照；留空则保留当前图片。</p>
       </div>
       <div class="field">
         <label>标签</label>
