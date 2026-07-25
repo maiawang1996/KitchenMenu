@@ -188,12 +188,21 @@ async function readCloudSnapshot() {
       },
       cache: "no-store",
     });
-    const payload = await response.json().catch(() => null);
+    const raw = await response.text();
+    let payload = null;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch {
+      payload = { error: raw || null };
+    }
     if (!response.ok) {
       return {
         ok: false,
         status: response.status,
-        error: payload?.error || "无法读取云端快照",
+        error: payload?.error || payload?.message || payload?.details || payload?.hint || "无法读取云端快照",
+        message: payload?.message || null,
+        details: payload?.details || null,
+        hint: payload?.hint || null,
       };
     }
     return {
@@ -218,11 +227,20 @@ async function writeCloudSnapshot(snapshot) {
       },
       body: JSON.stringify({ snapshot: normalizeSnapshot(cloneData(snapshot)) }),
     });
-    const payload = await response.json().catch(() => null);
+    const raw = await response.text();
+    let payload = null;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch {
+      payload = { error: raw || null };
+    }
     return {
       ok: response.ok,
       status: response.status,
-      error: payload?.error || (response.ok ? "" : "云端保存失败"),
+      error: payload?.error || payload?.message || payload?.details || payload?.hint || (response.ok ? "" : "云端保存失败"),
+      message: payload?.message || null,
+      details: payload?.details || null,
+      hint: payload?.hint || null,
     };
   } catch {
     return {

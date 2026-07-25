@@ -6,6 +6,12 @@ function respond(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function supabaseError(result, fallback) {
+  const body = result?.body || {};
+  if (typeof body === "string") return body;
+  return body.message || body.error || body.details || body.hint || fallback;
+}
+
 function supabaseBaseUrl() {
   return (process.env.SUPABASE_URL || "").replace(/\/$/, "");
 }
@@ -86,7 +92,10 @@ module.exports = async (req, res) => {
     if (!result.ok) {
       return respond(res, result.status, {
         ok: false,
-        error: result.body?.error || "Unable to load cloud snapshot.",
+        error: supabaseError(result, "Unable to load cloud snapshot."),
+        message: result.body?.message || null,
+        details: result.body?.details || null,
+        hint: result.body?.hint || null,
       });
     }
 
@@ -112,7 +121,10 @@ module.exports = async (req, res) => {
     if (!result.ok) {
       return respond(res, result.status, {
         ok: false,
-        error: result.body?.error || "Unable to save cloud snapshot.",
+        error: supabaseError(result, "Unable to save cloud snapshot."),
+        message: result.body?.message || null,
+        details: result.body?.details || null,
+        hint: result.body?.hint || null,
       });
     }
 
