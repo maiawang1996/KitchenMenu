@@ -1097,6 +1097,7 @@ function openRecipeSheet(recipe = null, draft = null) {
       <div class="field"><label>原材料</label><textarea name="ingredients" required placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(values.ingredients.join("、"))}</textarea></div>
       <div class="field"><label>做法（可选）</label><textarea name="steps" placeholder="每一步换一行，留空也可以">${escapeHtml(values.steps.join("\n"))}</textarea></div>
       <button class="primary-btn" type="submit">保存菜谱</button>
+      ${recipe ? '<button class="ghost-btn" type="button" data-action="deleteRecipe">删除菜谱</button>' : ""}
     </form>
   `);
 }
@@ -1160,6 +1161,24 @@ view.addEventListener("click", (event) => {
     if (action === "editRecipe") {
       const recipe = recipeById(recipeId || id);
       if (recipe) openRecipeSheet(recipe);
+    }
+    if (action === "deleteRecipe" && state.editingRecipeId) {
+      const deleteId = state.editingRecipeId;
+      const target = recipeById(deleteId);
+      if (!target) return;
+      recipes = recipes.filter((recipe) => recipe.id !== deleteId);
+      state.cooked = state.cooked.filter((entry) => entry.recipeId !== deleteId);
+      state.weekPlan = state.weekPlan.map((day) => ({
+        ...day,
+        lunch: day.lunch === deleteId ? "" : day.lunch,
+        dinner: day.dinner === deleteId ? "" : day.dinner,
+      }));
+      if (state.detailId === deleteId) state.detailId = null;
+      state.editingRecipeId = null;
+      void saveApp();
+      closeSheet();
+      render();
+      showToast(`已删除菜谱：${target.name}`);
     }
     if (action === "addStock") openStockSheet();
     if (action === "editStock") {
