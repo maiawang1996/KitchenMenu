@@ -70,6 +70,7 @@ function createDefaultState() {
   editingRecipeId: null,
   editingStockId: null,
   search: "",
+  searchComposing: false,
   recommendationIndex: 0,
   selectedIngredient: null,
   stock: [
@@ -1188,6 +1189,21 @@ view.addEventListener("click", (event) => {
 
 view.addEventListener("input", (event) => {
   if (event.target?.id === "searchRecipe") {
+    if (state.searchComposing || event.isComposing) return;
+    state.search = event.target.value;
+    renderRecipes();
+  }
+});
+
+view.addEventListener("compositionstart", (event) => {
+  if (event.target?.id === "searchRecipe") {
+    state.searchComposing = true;
+  }
+});
+
+view.addEventListener("compositionend", (event) => {
+  if (event.target?.id === "searchRecipe") {
+    state.searchComposing = false;
     state.search = event.target.value;
     renderRecipes();
   }
