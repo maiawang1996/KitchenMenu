@@ -226,7 +226,7 @@ async function writeCloudSnapshot(snapshot) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ snapshot: normalizeSnapshot(cloneData(snapshot)) }),
+      body: JSON.stringify({ snapshot: normalizeSnapshot(cloudSnapshotPayload(snapshot)) }),
     });
     const raw = await response.text();
     let payload = null;
@@ -234,6 +234,33 @@ async function writeCloudSnapshot(snapshot) {
       payload = raw ? JSON.parse(raw) : null;
     } catch {
       payload = { error: raw || null };
+    }
+    if (!response.ok) {
+      const responseText = [payload?.error, payload?.message, payload?.details, payload?.hint].filter(Boolean).join(" ").toLowerCase();
+      if (response.status === 413 || responseText.includes("entity too large")) {
+        const fallbackResponse = await fetch(CLOUD_SNAPSHOT_ENDPOINT, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ snapshot: normalizeSnapshot(cloudSnapshotPayload(snapshot, { stripRecipeImages: true })) }),
+        });
+        const fallbackRaw = await fallbackResponse.text();
+        let fallbackPayload = null;
+        try {
+          fallbackPayload = fallbackRaw ? JSON.parse(fallbackRaw) : null;
+        } catch {
+          fallbackPayload = { error: fallbackRaw || null };
+        }
+        return {
+          ok: fallbackResponse.ok,
+          status: fallbackResponse.status,
+          error: fallbackPayload?.error || fallbackPayload?.message || fallbackPayload?.details || fallbackPayload?.hint || (fallbackResponse.ok ? "" : "云端保存失败"),
+          message: fallbackPayload?.message || null,
+          details: fallbackPayload?.details || null,
+          hint: fallbackPayload?.hint || null,
+        };
+      }
     }
     return {
       ok: response.ok,
@@ -267,6 +294,22 @@ function serializeSnapshot() {
     state: serializeState(),
     savedAt: new Date().toISOString(),
   };
+}
+
+function cloudSnapshotPayload(snapshot, { stripRecipeImages = false } = {}) {
+  const payload = cloneData(snapshot);
+  if (stripRecipeImages && Array.isArray(payload.recipes)) {
+    payload.recipes = payload.recipes.map((recipe) => {
+      if (!recipe || typeof recipe !== "object") return recipe;
+      const image = typeof recipe.image === "string" ? recipe.image : "";
+      if (image.startsWith("data:image/")) {
+        const { image: _image, ...rest } = recipe;
+        return rest;
+      }
+      return recipe;
+    });
+  }
+  return payload;
 }
 
 function applySnapshot(snapshot) {
@@ -555,7 +598,7 @@ function recipeFormDefaults(recipe = null, draft = null) {
 
 function cropImageToSquare(imageEl, cropState) {
   const canvas = document.createElement("canvas");
-  const size = 1024;
+  const size = 720;
   const scale = cropState.baseScale * cropState.zoom;
   const sourceX = clamp(-cropState.offsetX / scale, 0, imageEl.naturalWidth);
   const sourceY = clamp(-cropState.offsetY / scale, 0, imageEl.naturalHeight);
@@ -564,7 +607,7 @@ function cropImageToSquare(imageEl, cropState) {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   ctx.drawImage(imageEl, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
-  return canvas.toDataURL("image/jpeg", 0.92);
+  return canvas.toDataURL("image/jpeg", 0.82);
 }
 
 function daysSince(dateString) {
@@ -1162,24 +1205,6 @@ view.addEventListener("click", (event) => {
       const recipe = recipeById(recipeId || id);
       if (recipe) openRecipeSheet(recipe);
     }
-    if (action === "deleteRecipe" && state.editingRecipeId) {
-      const deleteId = state.editingRecipeId;
-      const target = recipeById(deleteId);
-      if (!target) return;
-      recipes = recipes.filter((recipe) => recipe.id !== deleteId);
-      state.cooked = state.cooked.filter((entry) => entry.recipeId !== deleteId);
-      state.weekPlan = state.weekPlan.map((day) => ({
-        ...day,
-        lunch: day.lunch === deleteId ? "" : day.lunch,
-        dinner: day.dinner === deleteId ? "" : day.dinner,
-      }));
-      if (state.detailId === deleteId) state.detailId = null;
-      state.editingRecipeId = null;
-      void saveApp();
-      closeSheet();
-      render();
-      showToast(`已删除菜谱：${target.name}`);
-    }
     if (action === "addStock") openStockSheet();
     if (action === "editStock") {
       const stock = state.stock.find((item) => item.id === id || item.id === actionEl.dataset.stockId);
@@ -1269,6 +1294,26 @@ sheet.addEventListener("click", (event) => {
       imageCropState = null;
       openRecipeSheet(recipe, { ...draft, image: cropped });
     }
+    return;
+  }
+  const deleteRecipeButton = event.target.closest("[data-action='deleteRecipe']");
+  if (deleteRecipeButton && state.editingRecipeId) {
+    const deleteId = state.editingRecipeId;
+    const target = recipeById(deleteId);
+    if (!target) return;
+    recipes = recipes.filter((recipe) => recipe.id !== deleteId);
+    state.cooked = state.cooked.filter((entry) => entry.recipeId !== deleteId);
+    state.weekPlan = state.weekPlan.map((day) => ({
+      ...day,
+      lunch: day.lunch === deleteId ? "" : day.lunch,
+      dinner: day.dinner === deleteId ? "" : day.dinner,
+    }));
+    if (state.detailId === deleteId) state.detailId = null;
+    state.editingRecipeId = null;
+    void saveApp();
+    closeSheet();
+    render();
+    showToast(`已删除菜谱：${target.name}`);
     return;
   }
   const deleteStockButton = event.target.closest("[data-action='deleteStock']");
