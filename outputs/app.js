@@ -10,7 +10,7 @@ const DB_NAME = "KitchenMenuDB";
 const DB_STORE = "snapshot";
 const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
-const APP_VERSION = "20260727c";
+const APP_VERSION = "20260727d";
 const APP_VERSION_KEY = "kitchenmenu.app-version";
 
 const defaultRecipes = [
@@ -88,13 +88,13 @@ function createDefaultState() {
     { recipeId: "beef-potato", date: "2026-07-06" },
   ],
   weekPlan: [
-    { date: "周一", lunch: "tomato-egg", dinner: "beef-potato" },
-    { date: "周二", lunch: "", dinner: "tomato-egg" },
-    { date: "周三", lunch: "beef-potato", dinner: "" },
-    { date: "周四", lunch: "", dinner: "tomato-egg" },
-    { date: "周五", lunch: "beef-potato", dinner: "" },
-    { date: "周六", lunch: "", dinner: "" },
-    { date: "周日", lunch: "", dinner: "" },
+    { date: "周一", recipeId: "tomato-egg" },
+    { date: "周二", recipeId: "beef-potato" },
+    { date: "周三", recipeId: "tomato-egg" },
+    { date: "周四", recipeId: "beef-potato" },
+    { date: "周五", recipeId: "" },
+    { date: "周六", recipeId: "" },
+    { date: "周日", recipeId: "" },
   ],
   purchased: new Set(["米饭"]),
   };
@@ -280,7 +280,12 @@ function applySnapshot(snapshot) {
   if (snapshot.state) {
     if (Array.isArray(snapshot.state.stock)) nextState.stock = cloneData(snapshot.state.stock);
     if (Array.isArray(snapshot.state.cooked)) nextState.cooked = cloneData(snapshot.state.cooked);
-    if (Array.isArray(snapshot.state.weekPlan)) nextState.weekPlan = cloneData(snapshot.state.weekPlan);
+    if (Array.isArray(snapshot.state.weekPlan)) {
+      nextState.weekPlan = cloneData(snapshot.state.weekPlan).map((day) => ({
+        date: day.date,
+        recipeId: day.recipeId || day.lunch || day.dinner || "",
+      }));
+    }
     if (Array.isArray(snapshot.state.purchased)) nextState.purchased = new Set(snapshot.state.purchased);
   }
   state.stock = nextState.stock;
@@ -692,12 +697,7 @@ function recipeCard(recipe, { compact = false } = {}) {
 function renderToday() {
   pageTitle.textContent = "今天吃什么";
   const plan = todayPlan();
-  const planEntries = [
-    { label: "午餐", id: plan.lunch },
-    { label: "晚餐", id: plan.dinner },
-  ]
-    .map((entry) => ({ ...entry, recipe: entry.id ? recipeById(entry.id) : null }))
-    .filter((entry) => entry.recipe);
+  const planRecipe = plan.recipeId ? recipeById(plan.recipeId) : null;
 
   const stocks = state.stock.slice(0, 4);
   const favorites = recipes.filter((recipe) => recipe.favorite);
@@ -720,22 +720,21 @@ function renderToday() {
     <section class="section">
       ${sectionHeader("今日计划", plan.date, "checklist")}
       <div class="journal-stack">
-        ${planEntries
-          .map(
-            (entry) => `
-              <article class="card plan-card" data-action="detail" data-id="${entry.recipe.id}">
+        ${
+          planRecipe
+            ? `
+              <article class="card plan-card" data-action="detail" data-id="${planRecipe.id}">
                 <div class="plan-card-image">
-                  ${recipeMedia(entry.recipe, "plan-card", entry.recipe.name)}
+                  ${recipeMedia(planRecipe, "plan-card", planRecipe.name)}
                 </div>
-                  <div class="plan-card-body">
-                  <p class="plan-label">${entry.label}</p>
-                  <h3>${entry.recipe.name}</h3>
-                  <p class="muted">${entry.recipe.tag}</p>
+                <div class="plan-card-body">
+                  <h3>${planRecipe.name}</h3>
+                  <p class="muted">${planRecipe.tag}</p>
                 </div>
               </article>
-              `,
-          )
-          .join("") || emptyIllustration("今天还没有安排菜谱", "把一道想做的菜先放进来。")}
+            `
+            : emptyIllustration("今天还没有安排菜谱", "把一道想做的菜先放进来。")
+        }
       </div>
     </section>
 
@@ -857,8 +856,7 @@ function renderPlan() {
           (day, index) => `
             <article class="card plan-day paper-card">
               <h3>${day.date}</h3>
-              ${mealSelect(index, "lunch", "午餐", day.lunch)}
-              ${mealSelect(index, "dinner", "晚餐", day.dinner)}
+              ${planSelect(index, day.recipeId)}
             </article>
           `,
         )
@@ -875,11 +873,11 @@ function renderPlan() {
   `;
 }
 
-function mealSelect(index, key, label, selected) {
+function planSelect(index, selected) {
   return `
     <label class="meal-row">
-      <span class="muted">${label}</span>
-      <select data-plan-index="${index}" data-meal="${key}">
+      <span class="muted">今天这一道</span>
+      <select data-plan-index="${index}">
         <option value="">未安排</option>
         ${recipes.map((recipe) => `<option value="${recipe.id}" ${selected === recipe.id ? "selected" : ""}>${recipe.name}</option>`).join("")}
       </select>
@@ -888,7 +886,7 @@ function mealSelect(index, key, label, selected) {
 }
 
 function shoppingItems() {
-  const plannedIds = state.weekPlan.flatMap((day) => [day.lunch, day.dinner]).filter(Boolean);
+  const plannedIds = state.weekPlan.map((day) => day.recipeId).filter(Boolean);
   const counts = new Map();
   plannedIds.forEach((id) => {
     const recipe = recipeById(id);
@@ -1231,7 +1229,7 @@ view.addEventListener("compositionend", (event) => {
 view.addEventListener("change", (event) => {
   if (event.target.matches("[data-plan-index]")) {
     const day = state.weekPlan[Number(event.target.dataset.planIndex)];
-    day[event.target.dataset.meal] = event.target.value;
+    day.recipeId = event.target.value;
     renderPlan();
     void saveApp();
   }
