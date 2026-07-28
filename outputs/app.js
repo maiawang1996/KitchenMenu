@@ -131,6 +131,7 @@ function createDefaultState() {
   editingStockId: null,
   search: "",
   searchComposing: false,
+  babyOnly: false,
   recommendationIndex: 0,
   selectedIngredient: null,
   stock: [
@@ -597,6 +598,7 @@ function registerPwa() {
 function iconSvg(name) {
   const icons = {
     plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>',
     arrowRight: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>',
     more: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h.01M12 12h.01M18 12h.01" /></svg>',
     back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>',
@@ -1159,13 +1161,6 @@ function openPlanRecipePicker() {
   `);
 }
 
-async function markCooked(id) {
-  state.cooked.unshift({ recipeId: id, date: todayKey() });
-  const cloudResult = await saveApp({ syncCloud: false });
-  showToast(`已记录：${recipeById(id).name}`);
-  setTab("today");
-}
-
 function showToast(message) {
   const toast = document.createElement("div");
   toast.textContent = message;
@@ -1173,6 +1168,25 @@ function showToast(message) {
     "position:fixed;left:50%;bottom:92px;z-index:60;transform:translateX(-50%);max-width:88%;padding:11px 14px;border-radius:999px;background:#f1eadf;color:#3c3528;font-weight:700;box-shadow:0 8px 18px rgba(86,68,46,.08);border:1px solid rgba(185,165,135,.25)";
   document.body.appendChild(toast);
   window.setTimeout(() => toast.remove(), 1700);
+}
+
+function setRecipeSaveLoading(button) {
+  if (!button) return;
+  button.disabled = true;
+  button.classList.add("is-saving");
+  button.innerHTML = '<span class="save-spinner" aria-hidden="true"></span><span>保存中...</span>';
+}
+
+function showRecipeSaveSuccess(message) {
+  const notice = document.createElement("div");
+  notice.className = "recipe-save-success";
+  notice.setAttribute("role", "status");
+  notice.innerHTML = `
+    <span class="recipe-save-success-icon">${iconSvg("check")}</span>
+    <strong>${escapeHtml(message)}</strong>
+  `;
+  document.body.appendChild(notice);
+  window.setTimeout(() => notice.remove(), 2200);
 }
 
 function openSheet(html) {
@@ -1250,8 +1264,9 @@ function renderRecipes() {
   }
   const query = normalizeSearchTerm(state.search);
   const filtered = recipes.filter((recipe) => {
-    if (!query) return true;
-    return recipeSearchText(recipe).includes(query);
+    const matchesSearch = !query || recipeSearchText(recipe).includes(query);
+    const matchesBabyFilter = !state.babyOnly || recipeHasTag(recipe, "宝贝");
+    return matchesSearch && matchesBabyFilter;
   });
   view.innerHTML = `
     <div class="page-shell journal-page recipes-page">
@@ -1259,6 +1274,14 @@ function renderRecipes() {
         ${sectionHeader("菜谱札记", `${filtered.length} 道`, "favoriteBook")}
         <div class="paper-card search-shell">
           <input class="search" id="searchRecipe" value="${escapeHtml(state.search)}" placeholder="搜索菜名、食材或标签" />
+          <div class="recipe-filter-row" aria-label="菜谱筛选">
+            <button
+              class="recipe-filter-chip ${state.babyOnly ? "active" : ""}"
+              type="button"
+              data-action="toggleBabyFilter"
+              aria-pressed="${state.babyOnly}"
+            >宝贝</button>
+          </div>
         </div>
       </section>
 
@@ -1315,9 +1338,6 @@ function renderRecipeDetail(id) {
       }
     </section>
 
-    <div class="sticky-action">
-      <button class="primary-btn" data-action="markCooked" data-id="${recipe.id}">今天做了</button>
-    </div>
   `;
 }
 
@@ -1661,7 +1681,10 @@ view.addEventListener("click", (event) => {
       state.recommendationIndex += 1;
       render();
     }
-    if (action === "markCooked") void markCooked(id);
+    if (action === "toggleBabyFilter") {
+      state.babyOnly = !state.babyOnly;
+      renderRecipes();
+    }
     if (action === "backRecipes") {
       state.detailId = null;
       render();
@@ -1878,6 +1901,8 @@ sheet.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.target.id === "recipeForm") {
     const isEditingRecipe = Boolean(state.editingRecipeId);
+    const saveButton = event.submitter || event.target.querySelector('button[type="submit"]');
+    setRecipeSaveLoading(saveButton);
     const form = new FormData(event.target);
     const name = form.get("name").toString().trim();
     const ingredients = form
@@ -1921,7 +1946,11 @@ sheet.addEventListener("submit", async (event) => {
     const cloudOk = await saveApp({ syncCloud: true, sharedChanged: true });
     closeSheet();
     render();
-    showToast(cloudOk.ok ? (isEditingRecipe ? "菜谱已更新" : "菜谱已保存") : `已保存到本地，云端未同步：${cloudOk.error}`);
+    if (cloudOk.ok) {
+      showRecipeSaveSuccess(isEditingRecipe ? "菜谱已更新" : "恭喜你又添加一道菜！");
+    } else {
+      showToast(`已保存到本地，云端未同步：${cloudOk.error}`);
+    }
   }
   if (event.target.id === "stockForm") {
     const form = new FormData(event.target);
