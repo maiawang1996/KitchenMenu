@@ -2,6 +2,7 @@ const TABLE_NAME = process.env.KITCHENMENU_SUPABASE_TABLE || "kitchenmenu_snapsh
 const ROW_ID = process.env.KITCHENMENU_SNAPSHOT_ROW_ID || "main";
 
 function respond(res, status, payload) {
+  res.setHeader("Cache-Control", "no-store");
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(payload));
 }

@@ -10,6 +10,7 @@ const DB_NAME = "KitchenMenuDB";
 const DB_STORE = "snapshot";
 const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
+const CLOUD_IMAGE_ENDPOINT = "/api/image";
 
 const defaultRecipes = [
   {
@@ -127,6 +128,8 @@ let recipes = cloneData(defaultRecipes);
 let state = createDefaultState();
 let imageCropState = null;
 let lastSharedSavedAt = 0;
+let pendingCloudSync = false;
+let deletedRecipeIds = new Set();
 
 const view = document.querySelector("#view");
 const pageTitle = document.querySelector("#pageTitle");
@@ -281,6 +284,7 @@ async function writeCloudSnapshot(snapshot) {
         return {
           ok: fallbackResponse.ok,
           status: fallbackResponse.status,
+          updatedAt: fallbackPayload?.updatedAt || null,
           error: fallbackPayload?.error || fallbackPayload?.message || fallbackPayload?.details || fallbackPayload?.hint || (fallbackResponse.ok ? "" : "云端保存失败"),
           message: fallbackPayload?.message || null,
           details: fallbackPayload?.details || null,
@@ -291,6 +295,7 @@ async function writeCloudSnapshot(snapshot) {
     return {
       ok: response.ok,
       status: response.status,
+      updatedAt: payload?.updatedAt || null,
       error: payload?.error || payload?.message || payload?.details || payload?.hint || (response.ok ? "" : "云端保存失败"),
       message: payload?.message || null,
       details: payload?.details || null,
@@ -303,6 +308,57 @@ async function writeCloudSnapshot(snapshot) {
       error: "网络请求失败",
     };
   }
+}
+
+async function uploadRecipeImage(dataUrl, recipeId) {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) {
+    return { ok: true, url: dataUrl };
+  }
+  try {
+    const response = await fetch(CLOUD_IMAGE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ dataUrl, recipeId }),
+    });
+    const raw = await response.text();
+    let payload = null;
+    try {
+      payload = raw ? JSON.parse(raw) : null;
+    } catch {
+      payload = { error: raw || null };
+    }
+    return {
+      ok: response.ok && Boolean(payload?.url),
+      status: response.status,
+      url: payload?.url || "",
+      error: payload?.error || payload?.message || (response.ok ? "图片地址无效" : "图片上传失败"),
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      url: "",
+      error: "图片上传网络请求失败",
+    };
+  }
+}
+
+async function uploadPendingRecipeImages() {
+  const failures = [];
+  let changed = false;
+  for (const recipe of recipes) {
+    if (typeof recipe?.image !== "string" || !recipe.image.startsWith("data:image/")) continue;
+    const result = await uploadRecipeImage(recipe.image, recipe.id);
+    if (result.ok) {
+      recipe.image = result.url;
+      changed = true;
+    } else {
+      failures.push(`${recipe.name}：${result.error}`);
+    }
+  }
+  return { changed, failures };
 }
 
 function serializeState() {
@@ -319,6 +375,8 @@ function serializeLocalSnapshot({ updateSharedSavedAt = false } = {}) {
   const snapshot = {
     recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
     state: serializeState(),
+    deletedRecipeIds: Array.from(deletedRecipeIds),
+    pendingCloudSync,
     savedAt,
   };
   if (updateSharedSavedAt) {
@@ -333,6 +391,7 @@ function serializeCloudSnapshot() {
   return {
     recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
     stock: cloneData(state.stock),
+    deletedRecipeIds: Array.from(deletedRecipeIds),
     savedAt: new Date().toISOString(),
   };
 }
@@ -375,6 +434,8 @@ function applyLocalSnapshot(snapshot) {
   state.cooked = nextState.cooked;
   state.weekPlan = nextState.weekPlan;
   state.purchased = nextState.purchased;
+  deletedRecipeIds = new Set(Array.isArray(snapshot.deletedRecipeIds) ? snapshot.deletedRecipeIds : []);
+  pendingCloudSync = Boolean(snapshot.pendingCloudSync);
   lastSharedSavedAt = sharedSnapshotTime(snapshot);
   return true;
 }
@@ -397,8 +458,34 @@ function applyCloudSnapshot(snapshot) {
   if (Array.isArray(snapshot.stock)) {
     state.stock = cloneData(snapshot.stock);
   }
+  deletedRecipeIds = new Set(Array.isArray(snapshot.deletedRecipeIds) ? snapshot.deletedRecipeIds : []);
+  recipes = recipes.filter((recipe) => !deletedRecipeIds.has(recipe.id));
+  pendingCloudSync = false;
   lastSharedSavedAt = sharedSnapshotTime(snapshot);
   return true;
+}
+
+function localHasRecipesMissingFromCloud(localSnapshot, cloudSnapshot) {
+  if (!Array.isArray(localSnapshot?.recipes) || !Array.isArray(cloudSnapshot?.recipes)) return false;
+  const cloudIds = new Set(cloudSnapshot.recipes.map((recipe) => recipe.id));
+  const cloudDeleted = new Set(Array.isArray(cloudSnapshot.deletedRecipeIds) ? cloudSnapshot.deletedRecipeIds : []);
+  return localSnapshot.recipes.some((recipe) => !cloudIds.has(recipe.id) && !cloudDeleted.has(recipe.id));
+}
+
+function mergeCloudIntoPendingLocal(cloudSnapshot) {
+  if (!cloudSnapshot) return;
+  const localRecipes = new Map(recipes.map((recipe) => [recipe.id, recipe]));
+  const mergedDeleted = new Set([
+    ...(Array.isArray(cloudSnapshot.deletedRecipeIds) ? cloudSnapshot.deletedRecipeIds : []),
+    ...deletedRecipeIds,
+  ]);
+  for (const cloudRecipe of Array.isArray(cloudSnapshot.recipes) ? cloudSnapshot.recipes : []) {
+    if (!localRecipes.has(cloudRecipe.id) && !mergedDeleted.has(cloudRecipe.id)) {
+      localRecipes.set(cloudRecipe.id, normalizeRecipe(cloneData(cloudRecipe)));
+    }
+  }
+  recipes = Array.from(localRecipes.values()).filter((recipe) => !mergedDeleted.has(recipe.id));
+  deletedRecipeIds = mergedDeleted;
 }
 
 async function hydrateApp() {
@@ -411,10 +498,16 @@ async function hydrateApp() {
 
   const localSharedTime = lastSharedSavedAt || 0;
   const cloudSharedTime = sharedSnapshotTime(cloudSnapshot);
-  const localRecipeCount = Array.isArray(localSnapshot?.recipes) ? localSnapshot.recipes.length : 0;
-  const cloudRecipeCount = Array.isArray(cloudSnapshot?.recipes) ? cloudSnapshot.recipes.length : 0;
-  const cloudCanReplaceLocal = !localSnapshot || cloudRecipeCount >= localRecipeCount;
-  if (cloudSnapshot && cloudSharedTime > localSharedTime && cloudCanReplaceLocal) {
+  const needsRecoverySync =
+    Boolean(localSnapshot) &&
+    (pendingCloudSync || localHasRecipesMissingFromCloud(localSnapshot, cloudSnapshot));
+
+  if (cloudSnapshot && !localSnapshot) {
+    applyCloudSnapshot(cloudSnapshot);
+  } else if (cloudSnapshot && needsRecoverySync) {
+    mergeCloudIntoPendingLocal(cloudSnapshot);
+    pendingCloudSync = true;
+  } else if (cloudSnapshot && cloudSharedTime > localSharedTime) {
     applyCloudSnapshot(cloudSnapshot);
   }
 
@@ -422,21 +515,41 @@ async function hydrateApp() {
   writeFallbackSnapshot(localToPersist);
   void writeSnapshot(localToPersist);
 
-  const shouldSyncCloud = !cloudSnapshot || cloudSharedTime <= (lastSharedSavedAt || 0) || !localSnapshot;
-  if (shouldSyncCloud) {
-    const cloudToPersist = serializeCloudSnapshot();
-    void writeCloudSnapshot(cloudToPersist);
+  if (needsRecoverySync) {
+    void saveApp({ syncCloud: true, sharedChanged: true });
   }
 }
 
 async function saveApp({ syncCloud = true, sharedChanged = false } = {}) {
-  const localSnapshot = serializeLocalSnapshot({ updateSharedSavedAt: syncCloud && sharedChanged });
+  pendingCloudSync = syncCloud ? true : pendingCloudSync;
+  const localSnapshot = serializeLocalSnapshot();
   writeFallbackSnapshot(localSnapshot);
   void writeSnapshot(localSnapshot);
   if (!syncCloud) {
     return { ok: true, status: 0, skipped: true };
   }
+  const imageResult = await uploadPendingRecipeImages();
+  if (imageResult.changed) {
+    const imageSnapshot = serializeLocalSnapshot();
+    writeFallbackSnapshot(imageSnapshot);
+    void writeSnapshot(imageSnapshot);
+  }
   const cloudResult = await writeCloudSnapshot(serializeCloudSnapshot());
+  if (!cloudResult.ok) {
+    return cloudResult;
+  }
+  pendingCloudSync = imageResult.failures.length > 0;
+  lastSharedSavedAt = Date.parse(cloudResult.updatedAt || new Date().toISOString());
+  const syncedSnapshot = serializeLocalSnapshot({ updateSharedSavedAt: sharedChanged });
+  writeFallbackSnapshot(syncedSnapshot);
+  void writeSnapshot(syncedSnapshot);
+  if (imageResult.failures.length > 0) {
+    return {
+      ok: false,
+      status: 0,
+      error: imageResult.failures.join("；"),
+    };
+  }
   return cloudResult;
 }
 
@@ -1597,6 +1710,7 @@ sheet.addEventListener("click", (event) => {
     const deleteId = state.editingRecipeId;
     const target = recipeById(deleteId);
     if (!target) return;
+    deletedRecipeIds.add(deleteId);
     recipes = recipes.filter((recipe) => recipe.id !== deleteId);
     state.cooked = state.cooked.filter((entry) => entry.recipeId !== deleteId);
     state.weekPlan = state.weekPlan.map((day) => ({
@@ -1713,8 +1827,10 @@ sheet.addEventListener("submit", async (event) => {
       const target = recipeById(state.editingRecipeId);
       if (target) Object.assign(target, payload);
     } else {
+      const recipeId = `custom-${Date.now()}`;
+      deletedRecipeIds.delete(recipeId);
       recipes.unshift({
-        id: `custom-${Date.now()}`,
+        id: recipeId,
         ...payload,
       });
       state.tab = "today";
