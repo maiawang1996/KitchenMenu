@@ -796,6 +796,16 @@ function stockIllustration(name) {
   if (value.includes("肉")) return `<img class="stock-art-image" src="./assets/stock-beef.png" alt="" aria-hidden="true" />`;
   if (value.includes("洋葱")) return `<img class="stock-art-image" src="./assets/stock-onion.png" alt="" aria-hidden="true" />`;
   if (value.includes("茄子")) return `<img class="stock-art-image" src="./assets/stock-eggplant.png" alt="" aria-hidden="true" />`;
+  if (value.includes("豆角")) return `<img class="stock-art-image" src="./assets/stock-green-beans.png" alt="" aria-hidden="true" />`;
+  if (value.includes("青椒")) return `<img class="stock-art-image" src="./assets/stock-green-pepper.png" alt="" aria-hidden="true" />`;
+  if (value.includes("辣椒")) return `<img class="stock-art-image" src="./assets/stock-chili.png" alt="" aria-hidden="true" />`;
+  if (value.includes("冬瓜")) return `<img class="stock-art-image" src="./assets/stock-winter-melon.png" alt="" aria-hidden="true" />`;
+  if (value.includes("菠菜")) return `<img class="stock-art-image" src="./assets/stock-spinach.png" alt="" aria-hidden="true" />`;
+  if (value.includes("青菜")) return `<img class="stock-art-image" src="./assets/stock-greens.png" alt="" aria-hidden="true" />`;
+  if (value.includes("土豆")) return `<img class="stock-art-image" src="./assets/stock-potato.png" alt="" aria-hidden="true" />`;
+  if (value.includes("地瓜") || value.includes("红薯") || value.includes("番薯")) {
+    return `<img class="stock-art-image" src="./assets/stock-sweet-potato.png" alt="" aria-hidden="true" />`;
+  }
   return doodleSvg("branch");
 }
 
