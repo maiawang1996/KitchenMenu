@@ -1289,26 +1289,6 @@ h3 {
   line-height: 1.35;
 }
 
-.carousel-dots {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.carousel-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #ded8cb;
-}
-
-.carousel-dots span.active {
-  width: 7px;
-  height: 7px;
-  background: #82926f;
-}
-
 .favorites-card {
   overflow: hidden;
   border-radius: 20px;

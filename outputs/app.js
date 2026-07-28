@@ -1255,7 +1255,7 @@ function renderToday() {
     .filter(Boolean)
     .map((id) => ({ recipe: recipeById(id) }))
     .filter((entry) => entry.recipe);
-  const pantryItems = state.stock.slice(0, 5);
+  const pantryItems = state.stock;
   const favorites = recipes.filter((recipe) => recipe.favorite).slice(0, 3);
   const recommendation = currentRecommendation().recipe;
 
@@ -1271,7 +1271,6 @@ function renderToday() {
         <div class="pantry-carousel">
           ${pantryItems.map((item) => homePantryCard(item)).join("") || emptyIllustration("今天还没有库存", "把买回来的食材记一下。", "sprout")}
         </div>
-        ${pantryItems.length ? `<div class="carousel-dots" aria-hidden="true">${pantryItems.slice(0, 3).map((_, index) => `<span class="${index === 0 ? "active" : ""}"></span>`).join("")}</div>` : ""}
       </section>
 
       <section class="section">
