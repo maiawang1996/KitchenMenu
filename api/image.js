@@ -30,8 +30,9 @@ async function ensureBucket(baseUrl) {
     headers: storageHeaders(),
   });
   if (response.ok) return { ok: true };
-  if (response.status !== 404) {
-    return { ok: false, error: await response.text() };
+  const lookupError = await response.text();
+  if (response.status !== 404 && !/bucket not found|\"statusCode\"\s*:\s*\"?404/i.test(lookupError)) {
+    return { ok: false, error: lookupError };
   }
   const createResponse = await fetch(`${baseUrl}/storage/v1/bucket`, {
     method: "POST",
