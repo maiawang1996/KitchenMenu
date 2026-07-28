@@ -1,4 +1,4 @@
-const CACHE_NAME = "kitchenmenu-pwa-v30";
+const CACHE_NAME = "kitchenmenu-pwa-v31";
 const PRECACHE_URLS = [
   "/",
   "/index.html",
@@ -7,8 +7,8 @@ const PRECACHE_URLS = [
   "/app-icon-512.png",
   "/apple-touch-icon.png",
   "/outputs/index.html",
-  "/outputs/styles.css?v=20260728t",
-  "/outputs/app.js?v=20260728t",
+  "/outputs/styles.css?v=20260728u",
+  "/outputs/app.js?v=20260728u",
   "/outputs/assets/home-plan-book.png",
   "/outputs/assets/stock-egg.png",
   "/outputs/assets/stock-tomato.png",
