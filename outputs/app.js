@@ -10,7 +10,7 @@ const DB_NAME = "KitchenMenuDB";
 const DB_STORE = "snapshot";
 const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
-const APP_VERSION = "20260727d";
+const APP_VERSION = "20260727e";
 const APP_VERSION_KEY = "kitchenmenu.app-version";
 
 const defaultRecipes = [
@@ -63,6 +63,62 @@ function selectLatestSnapshot(localSnapshot, cloudSnapshot) {
     return snapshotTime(localSnapshot) >= snapshotTime(cloudSnapshot) ? localSnapshot : cloudSnapshot;
   }
   return localSnapshot || cloudSnapshot || null;
+}
+
+function userRecipeWeight(snapshot) {
+  const recipeList = Array.isArray(snapshot?.recipes) ? snapshot.recipes : [];
+  return recipeList.filter((recipe) => !defaultRecipes.some((defaultRecipe) => defaultRecipe.id === recipe.id) || String(recipe.image || "").startsWith("data:")).length;
+}
+
+function mergeById(primary = [], secondary = []) {
+  const merged = new Map();
+  secondary.forEach((item) => {
+    if (item?.id) merged.set(item.id, item);
+  });
+  primary.forEach((item) => {
+    if (item?.id) merged.set(item.id, item);
+  });
+  return Array.from(merged.values());
+}
+
+function normalizeWeekPlanDay(day) {
+  return {
+    date: day.date,
+    recipeId: day.recipeId || day.lunch || day.dinner || "",
+  };
+}
+
+function mergeSnapshots(localSnapshot, cloudSnapshot) {
+  const localTime = snapshotTime(localSnapshot);
+  const cloudTime = snapshotTime(cloudSnapshot);
+  const localHasUserRecipes = userRecipeWeight(localSnapshot) > 0;
+  const preferLocal = localHasUserRecipes || localTime >= cloudTime;
+  const base = cloneData(preferLocal ? localSnapshot || cloudSnapshot : cloudSnapshot || localSnapshot);
+  if (!base) return null;
+
+  const localRecipes = Array.isArray(localSnapshot?.recipes) ? localSnapshot.recipes : [];
+  const cloudRecipes = Array.isArray(cloudSnapshot?.recipes) ? cloudSnapshot.recipes : [];
+  if (localRecipes.length || cloudRecipes.length) {
+    base.recipes = mergeById(preferLocal ? localRecipes : cloudRecipes, preferLocal ? cloudRecipes : localRecipes).map((recipe) => normalizeRecipe(recipe));
+  }
+
+  const localStock = Array.isArray(localSnapshot?.state?.stock) ? localSnapshot.state.stock : [];
+  const cloudStock = Array.isArray(cloudSnapshot?.state?.stock) ? cloudSnapshot.state.stock : [];
+  base.state = base.state || {};
+  if (localStock.length || cloudStock.length) {
+    base.state.stock = mergeById(preferLocal ? localStock : cloudStock, preferLocal ? cloudStock : localStock);
+  }
+
+  if (Array.isArray(localSnapshot?.state?.weekPlan)) {
+    base.state.weekPlan = cloneData(localSnapshot.state.weekPlan).map(normalizeWeekPlanDay);
+  }
+  if (Array.isArray(localSnapshot?.state?.purchased)) {
+    base.state.purchased = cloneData(localSnapshot.state.purchased);
+  }
+  if (Array.isArray(localSnapshot?.state?.cooked)) {
+    base.state.cooked = cloneData(localSnapshot.state.cooked);
+  }
+  return base;
 }
 
 function createDefaultState() {
@@ -263,7 +319,7 @@ function serializeState() {
   };
 }
 
-function serializeSnapshot() {
+function serializeLocalSnapshot() {
   return {
     recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
     state: serializeState(),
@@ -271,53 +327,59 @@ function serializeSnapshot() {
   };
 }
 
+function serializeCloudSnapshot() {
+  return {
+    recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
+    state: {
+      stock: cloneData(state.stock),
+    },
+    savedAt: new Date().toISOString(),
+  };
+}
+
+function serializeSnapshot() {
+  return serializeLocalSnapshot();
+}
+
 function applySnapshot(snapshot) {
   if (!snapshot) return false;
   if (Array.isArray(snapshot.recipes)) {
     recipes = cloneData(snapshot.recipes).map((recipe) => normalizeRecipe(recipe));
   }
-  const nextState = createDefaultState();
   if (snapshot.state) {
-    if (Array.isArray(snapshot.state.stock)) nextState.stock = cloneData(snapshot.state.stock);
-    if (Array.isArray(snapshot.state.cooked)) nextState.cooked = cloneData(snapshot.state.cooked);
+    if (Array.isArray(snapshot.state.stock)) state.stock = cloneData(snapshot.state.stock);
+    if (Array.isArray(snapshot.state.cooked)) state.cooked = cloneData(snapshot.state.cooked);
     if (Array.isArray(snapshot.state.weekPlan)) {
-      nextState.weekPlan = cloneData(snapshot.state.weekPlan).map((day) => ({
-        date: day.date,
-        recipeId: day.recipeId || day.lunch || day.dinner || "",
-      }));
+      state.weekPlan = cloneData(snapshot.state.weekPlan).map(normalizeWeekPlanDay);
     }
-    if (Array.isArray(snapshot.state.purchased)) nextState.purchased = new Set(snapshot.state.purchased);
+    if (Array.isArray(snapshot.state.purchased)) state.purchased = new Set(snapshot.state.purchased);
   }
-  state.stock = nextState.stock;
-  state.cooked = nextState.cooked;
-  state.weekPlan = nextState.weekPlan;
-  state.purchased = nextState.purchased;
   return true;
 }
 
 async function hydrateApp() {
   const [cloudResult, localSnapshot] = await Promise.all([readCloudSnapshot(), readSnapshot()]);
   const cloudSnapshot = cloudResult?.ok ? cloudResult.snapshot : null;
-  const snapshot = selectLatestSnapshot(localSnapshot, cloudSnapshot);
+  const snapshot = mergeSnapshots(localSnapshot, cloudSnapshot) || selectLatestSnapshot(localSnapshot, cloudSnapshot);
   if (snapshot) {
     applySnapshot(snapshot);
-    const normalized = serializeSnapshot();
+    const normalized = serializeLocalSnapshot();
     writeFallbackSnapshot(normalized);
     void writeSnapshot(normalized);
-    void writeCloudSnapshot(normalized);
+    void writeCloudSnapshot(serializeCloudSnapshot());
     return;
   }
 
-  const freshSnapshot = serializeSnapshot();
+  const freshSnapshot = serializeLocalSnapshot();
   writeFallbackSnapshot(freshSnapshot);
   void writeSnapshot(freshSnapshot);
-  void writeCloudSnapshot(freshSnapshot);
+  void writeCloudSnapshot(serializeCloudSnapshot());
 }
 
 async function saveApp() {
-  const snapshot = serializeSnapshot();
+  const snapshot = serializeLocalSnapshot();
   writeFallbackSnapshot(snapshot);
-  const cloudResult = await writeCloudSnapshot(snapshot);
+  const cloudResult = await writeCloudSnapshot(serializeCloudSnapshot());
   void writeSnapshot(snapshot);
   return cloudResult;
 }
