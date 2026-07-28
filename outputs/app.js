@@ -162,6 +162,9 @@ function createDefaultState() {
 let recipes = cloneData(defaultRecipes);
 let state = createDefaultState();
 let imageCropState = null;
+let recipeLongPressState = null;
+let suppressRecipeClickId = null;
+let suppressRecipeClickUntil = 0;
 let lastSharedSavedAt = 0;
 let pendingCloudSync = false;
 let deletedRecipeIds = new Set();
@@ -1113,14 +1116,14 @@ async function addRecipeToTodayPlan(recipeId) {
   const plan = todayPlan();
   if (plan.meal === recipeId) {
     closeSheet();
-    showToast(`今天计划里已经有：${recipe.name}`);
+    showToast(`今日菜单里已经有：${recipe.name}`);
     return;
   }
   plan.meal = recipeId;
-  const cloudResult = await saveApp({ syncCloud: false });
+  await saveApp({ syncCloud: false });
   closeSheet();
   render();
-  showToast(cloudResult.ok ? `已加入今日计划：${recipe.name}` : `已加入本地计划，云端未同步：${cloudResult.error}`);
+  showToast(`已加入今日菜单：${recipe.name}`);
 }
 
 async function clearTodayPlan() {
@@ -1157,6 +1160,23 @@ function openPlanRecipePicker() {
           </div>
         </article>
       `).join("")}
+    </div>
+  `);
+}
+
+function openRecipeQuickActions(recipeId) {
+  const recipe = recipeById(recipeId);
+  if (!recipe) return;
+  openSheet(`
+    <div class="recipe-quick-action">
+      <div class="recipe-quick-action-image">
+        ${recipeMedia(recipe, "recipe-thumb", recipe.name)}
+      </div>
+      <div class="recipe-quick-action-copy">
+        <p class="muted">今日菜单</p>
+        <h2>${recipe.name}</h2>
+      </div>
+      <button class="primary-btn" type="button" data-action="addToTodayPlan" data-id="${recipe.id}">加入今日菜单</button>
     </div>
   `);
 }
@@ -1272,7 +1292,7 @@ function renderRecipes() {
     <div class="page-shell journal-page recipes-page">
       <section class="section">
         ${sectionHeader("菜谱札记", `${filtered.length} 道`, "favoriteBook")}
-        <div class="paper-card search-shell">
+        <div class="paper-card search-shell" aria-label="搜索与筛选">
           <input class="search" id="searchRecipe" value="${escapeHtml(state.search)}" placeholder="搜索菜名、食材或标签" />
           <div class="recipe-filter-row" aria-label="菜谱筛选">
             <button
@@ -1338,6 +1358,9 @@ function renderRecipeDetail(id) {
       }
     </section>
 
+    <div class="detail-menu-action">
+      <button class="primary-btn" type="button" data-action="addToTodayPlan" data-id="${recipe.id}">加入今日菜单</button>
+    </div>
   `;
 }
 
@@ -1611,7 +1634,7 @@ function openRecipeSheet(recipe = null, draft = null) {
             <input class="file-input-hidden" name="image" type="file" accept="image/*" data-image-input />
           </label>
         </div>
-        <p class="muted">可以从手机相册选图，也可以直接拍照；图片会在上传前自动压缩。</p>
+        <p class="muted">从手机相册选择图片，上传前会自动压缩。</p>
       </div>
       <div class="field">
         <label>标签（可多选）</label>
@@ -1664,6 +1687,53 @@ document.querySelectorAll(".tab").forEach((button) => {
 });
 
 document.querySelector("#addRecipeTop").addEventListener("click", () => openRecipeSheet());
+
+function clearRecipeLongPress() {
+  if (recipeLongPressState?.timer) {
+    window.clearTimeout(recipeLongPressState.timer);
+  }
+  recipeLongPressState = null;
+}
+
+view.addEventListener("pointerdown", (event) => {
+  const thumb = event.target.closest(".recipes-page .recipe-card-compact .recipe-thumb");
+  const card = thumb?.closest("[data-recipe]");
+  if (!card) return;
+  clearRecipeLongPress();
+  const recipeId = card.dataset.recipe;
+  recipeLongPressState = {
+    pointerId: event.pointerId,
+    recipeId,
+    startX: event.clientX,
+    startY: event.clientY,
+    timer: window.setTimeout(() => {
+      suppressRecipeClickId = recipeId;
+      suppressRecipeClickUntil = Date.now() + 900;
+      recipeLongPressState = null;
+      openRecipeQuickActions(recipeId);
+    }, 560),
+  };
+});
+
+view.addEventListener("pointermove", (event) => {
+  if (!recipeLongPressState || event.pointerId !== recipeLongPressState.pointerId) return;
+  const dx = event.clientX - recipeLongPressState.startX;
+  const dy = event.clientY - recipeLongPressState.startY;
+  if (Math.hypot(dx, dy) > 10) clearRecipeLongPress();
+});
+
+view.addEventListener("pointerup", (event) => {
+  if (recipeLongPressState?.pointerId === event.pointerId) clearRecipeLongPress();
+});
+
+view.addEventListener("pointercancel", clearRecipeLongPress);
+view.addEventListener("scroll", clearRecipeLongPress, { passive: true });
+
+view.addEventListener("contextmenu", (event) => {
+  if (event.target.closest(".recipes-page .recipe-card-compact .recipe-thumb")) {
+    event.preventDefault();
+  }
+});
 
 view.addEventListener("click", (event) => {
   const recipeCardEl = event.target.closest("[data-recipe]");
@@ -1719,7 +1789,15 @@ view.addEventListener("click", (event) => {
     return;
   }
 
-  if (recipeCardEl) openDetail(recipeCardEl.dataset.recipe);
+  if (recipeCardEl) {
+    const recipeId = recipeCardEl.dataset.recipe;
+    if (suppressRecipeClickId === recipeId && Date.now() < suppressRecipeClickUntil) {
+      suppressRecipeClickId = null;
+      suppressRecipeClickUntil = 0;
+      return;
+    }
+    openDetail(recipeId);
+  }
   if (quickEl) setTab(quickEl.dataset.go);
   if (stockRowEl && state.tab === "stock") {
     const stock = state.stock.find((item) => item.id === stockRowEl.dataset.stockId);
