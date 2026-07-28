@@ -12,6 +12,7 @@ const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
 const CLOUD_IMAGE_ENDPOINT = "/api/image";
 const RECIPE_IMAGE_TARGET_BYTES = 350 * 1024;
+const RECIPE_TAG_OPTIONS = ["快菜", "慢菜", "宝贝"];
 
 const defaultRecipes = [
   {
@@ -41,7 +42,39 @@ function cloneData(value) {
 function normalizeRecipe(recipe) {
   if (!recipe) return recipe;
   const { minutes, ...rest } = recipe;
-  return rest;
+  const tags = Array.from(
+    new Set(
+      (Array.isArray(rest.tags) ? rest.tags : [rest.tag])
+        .map((tag) => String(tag || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  return {
+    ...rest,
+    tag: tags[0] || "",
+    tags,
+    ingredients: Array.isArray(rest.ingredients) ? rest.ingredients : [],
+    steps: Array.isArray(rest.steps) ? rest.steps : [],
+  };
+}
+
+function recipeTags(recipe) {
+  if (Array.isArray(recipe?.tags)) return recipe.tags.filter(Boolean);
+  return recipe?.tag ? [recipe.tag] : [];
+}
+
+function recipeHasTag(recipe, tag) {
+  return recipeTags(recipe).includes(tag);
+}
+
+function recipeTagText(recipe) {
+  return recipeTags(recipe).join(" · ") || "未分类";
+}
+
+function recipeTagChips(recipe) {
+  return recipeTags(recipe)
+    .map((tag) => `<span class="tag ${tag === "慢菜" ? "slow" : ""} ${tag === "宝贝" ? "baby" : ""}">${escapeHtml(tag)}</span>`)
+    .join("");
 }
 
 function normalizeWeekPlanDay(day = {}) {
@@ -776,7 +809,7 @@ function homePlanCard(entries) {
     <article class="home-plan-item" data-action="detail" data-id="${entry.recipe.id}">
       <div class="home-plan-item-copy">
         <strong>${entry.recipe.name}</strong>
-        <span>${entry.recipe.tag}</span>
+        <span>${recipeTagText(entry.recipe)}</span>
       </div>
       <span class="home-plan-item-arrow" aria-hidden="true">${iconSvg("arrowRight")}</span>
     </article>
@@ -811,7 +844,7 @@ function homeFavoriteRow(recipe) {
       <div class="favorite-photo">${recipeMedia(recipe, "favorite", recipe.name)}</div>
       <div class="favorite-copy">
         <h3>${recipe.name}</h3>
-        <p>${recipe.tag}</p>
+        <p>${recipeTagText(recipe)}</p>
       </div>
       <button class="favorite-heart" type="button" data-action="toggleFavorite" data-id="${recipe.id}" aria-label="${recipe.favorite ? "取消收藏" : "收藏"}">${recipe.favorite ? "♡" : "♡"}</button>
     </article>
@@ -918,7 +951,7 @@ function normalizeSearchTerm(value) {
 
 function recipeSearchText(recipe) {
   const steps = Array.isArray(recipe?.steps) ? recipe.steps.join("") : "";
-  return normalizeSearchTerm(`${recipe?.name || ""}${recipe?.ingredients?.join("") || ""}${recipe?.tag || ""}${steps}`);
+  return normalizeSearchTerm(`${recipe?.name || ""}${recipe?.ingredients?.join("") || ""}${recipeTags(recipe).join("")}${steps}`);
 }
 
 function todayKey() {
@@ -940,10 +973,11 @@ function clamp(value, min, max) {
 
 function getRecipeFormDraft(form) {
   const formData = new FormData(form);
-  const activeTag = sheet.querySelector("[data-form-tag].active")?.dataset.formTag || "快菜";
+  const tags = Array.from(sheet.querySelectorAll("[data-form-tag].active")).map((button) => button.dataset.formTag);
   return {
     name: formData.get("name").toString().trim(),
-    tag: activeTag,
+    tag: tags[0] || "",
+    tags,
     ingredients: formData
       .get("ingredients")
       .toString()
@@ -963,7 +997,7 @@ function getRecipeFormDraft(form) {
 function recipeFormDefaults(recipe = null, draft = null) {
   return {
     name: draft?.name ?? recipe?.name ?? "",
-    tag: draft?.tag ?? recipe?.tag ?? "快菜",
+    tags: draft?.tags ?? (recipe ? recipeTags(recipe) : ["快菜"]),
     ingredients: draft?.ingredients ?? recipe?.ingredients ?? [],
     steps: draft?.steps ?? recipe?.steps ?? [],
     image: draft?.image ?? recipeImageSrc(recipe) ?? "",
@@ -1031,7 +1065,7 @@ function recommendationPool() {
     .map((recipe) => {
       const stocked = recipe.ingredients.filter((item) => stock.includes(item)).length;
       const recentPenalty = recent.includes(recipe.id) ? -24 : 18;
-      const quickBonus = recipe.tag === "快菜" ? 10 : 2;
+      const quickBonus = recipeHasTag(recipe, "快菜") ? 10 : 2;
       const random = recipe.name.charCodeAt(0) % 9;
       return { recipe, score: stocked * 18 + recentPenalty + quickBonus + random };
     })
@@ -1050,7 +1084,7 @@ function reasonsFor(recipe) {
   return [
     recent ? "最近吃过，但库存匹配度高" : "最近没有吃过，适合换换口味",
     matched.length ? `家里已有：${matched.join("、")}` : "缺的食材少，适合加入购物清单",
-    `属于${recipe.tag}，做起来比较顺手`,
+    `属于${recipeTagText(recipe)}，做起来比较顺手`,
   ];
 }
 
@@ -1117,7 +1151,7 @@ function openPlanRecipePicker() {
           </div>
           <div class="recipe-body">
             <h3>${recipe.name}</h3>
-            <p class="recipe-meta">${recipe.tag}</p>
+            <p class="recipe-meta">${recipeTagText(recipe)}</p>
           </div>
         </article>
       `).join("")}
@@ -1162,7 +1196,7 @@ function recipeCard(recipe, { compact = false } = {}) {
       </div>
       <div class="recipe-body">
         <h3>${recipe.name}</h3>
-        ${compact ? "" : `<div class="tag-row"><span class="tag ${recipe.tag === "慢菜" ? "slow" : ""}">${recipe.tag}</span>${recipe.favorite ? '<span class="tag blue">收藏</span>' : ""}</div><p class="recipe-meta">${recipe.ingredients.join("、")}</p>`}
+        ${compact ? "" : `<div class="tag-row">${recipeTagChips(recipe)}${recipe.favorite ? '<span class="tag blue">收藏</span>' : ""}</div><p class="recipe-meta">${recipe.ingredients.join("、")}</p>`}
       </div>
     </article>
   `;
@@ -1259,15 +1293,17 @@ function renderRecipeDetail(id) {
       <div class="detail-cover">${recipeMedia(recipe, "detail-cover", recipe.name)}</div>
       <div class="detail-title">
         <h2>${recipe.name}</h2>
-        <div class="tag-row">
-          <span class="tag ${recipe.tag === "慢菜" ? "slow" : ""}">${recipe.tag}</span>
-        </div>
+        <div class="tag-row">${recipeTagChips(recipe)}</div>
       </div>
     </section>
 
     <section class="section paper-card">
       <h2>原材料</h2>
-      <ul class="plain-list">${recipe.ingredients.map((item) => `<li>${item}</li>`).join("")}</ul>
+      ${
+        recipe.ingredients.length
+          ? `<ul class="plain-list">${recipe.ingredients.map((item) => `<li>${item}</li>`).join("")}</ul>`
+          : '<p class="muted">还没有填写原材料。</p>'
+      }
     </section>
 
     <section class="section paper-card">
@@ -1543,20 +1579,30 @@ function openRecipeSheet(recipe = null, draft = null) {
       <div class="field"><label>菜名</label><input name="name" required placeholder="例如：红烧牛肉" value="${escapeHtml(values.name)}" /></div>
       <div class="field">
         <label>图片</label>
-        <div class="image-preview">
-          ${recipeMedia(recipe, "image-preview", "菜谱图片预览", 'data-image-preview', values.image)}
+        <div class="image-upload-row">
+          ${
+            values.image
+              ? `<div class="image-preview image-preview-compact">${recipeMedia(recipe, "image-preview", "菜谱图片预览", "data-image-preview", values.image)}</div>`
+              : ""
+          }
+          <label class="image-picker-button">
+            ${iconSvg("image")}
+            <span>${values.image ? "更换图片" : "选择图片"}</span>
+            <input class="file-input-hidden" name="image" type="file" accept="image/*" data-image-input />
+          </label>
         </div>
-        <input name="image" type="file" accept="image/*" data-image-input />
         <p class="muted">可以从手机相册选图，也可以直接拍照；图片会在上传前自动压缩。</p>
       </div>
       <div class="field">
-        <label>标签</label>
-        <div class="segmented">
-          <button type="button" class="${values.tag === "快菜" ? "active" : ""}" data-form-tag="快菜">快菜</button>
-          <button type="button" class="${values.tag === "慢菜" ? "active" : ""}" data-form-tag="慢菜">慢菜</button>
+        <label>标签（可多选）</label>
+        <div class="segmented tag-selector">
+          ${RECIPE_TAG_OPTIONS.map(
+            (tag) =>
+              `<button type="button" class="${values.tags.includes(tag) ? "active" : ""}" data-form-tag="${tag}" aria-pressed="${values.tags.includes(tag)}">${tag}</button>`,
+          ).join("")}
         </div>
       </div>
-      <div class="field"><label>原材料</label><textarea name="ingredients" required placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(values.ingredients.join("、"))}</textarea></div>
+      <div class="field"><label>原材料（可选）</label><textarea name="ingredients" placeholder="用顿号或换行分隔，例如：牛肉、土豆、洋葱">${escapeHtml(values.ingredients.join("、"))}</textarea></div>
       <div class="field"><label>做法（可选）</label><textarea name="steps" placeholder="每一步换一行，留空也可以">${escapeHtml(values.steps.join("\n"))}</textarea></div>
       <button class="primary-btn" type="submit">保存菜谱</button>
       ${recipe ? '<button class="ghost-btn" type="button" data-action="deleteRecipe">删除菜谱</button>' : ""}
@@ -1704,8 +1750,8 @@ sheet.addEventListener("click", async (event) => {
   if (event.target === sheet) closeSheet();
   const tagButton = event.target.closest("[data-form-tag]");
   if (tagButton) {
-    sheet.querySelectorAll("[data-form-tag]").forEach((button) => button.classList.remove("active"));
-    tagButton.classList.add("active");
+    tagButton.classList.toggle("active");
+    tagButton.setAttribute("aria-pressed", String(tagButton.classList.contains("active")));
   }
   const addToTodayPlanButton = event.target.closest("[data-action='addToTodayPlan']");
   if (addToTodayPlanButton) {
@@ -1846,14 +1892,15 @@ sheet.addEventListener("submit", async (event) => {
       .split(/\n/)
       .map((item) => item.trim())
       .filter(Boolean);
-    const activeTag = sheet.querySelector("[data-form-tag].active").dataset.formTag;
+    const tags = Array.from(sheet.querySelectorAll("[data-form-tag].active")).map((button) => button.dataset.formTag);
     const imageFile = form.get("image");
     const existingImage = event.target.dataset.currentImage || (state.editingRecipeId ? recipeImageSrc(recipeById(state.editingRecipeId)) : "");
     const image = imageFile instanceof File && imageFile.size > 0 ? await fileToDataUrl(imageFile) : existingImage;
     const payload = {
       name,
-      tag: activeTag,
-      favorite: false,
+      tag: tags[0] || "",
+      tags,
+      favorite: state.editingRecipeId ? Boolean(recipeById(state.editingRecipeId)?.favorite) : false,
       ingredients,
       steps,
     };
