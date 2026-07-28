@@ -11,6 +11,7 @@ const DB_STORE = "snapshot";
 const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
 const CLOUD_IMAGE_ENDPOINT = "/api/image";
+const RECIPE_IMAGE_TARGET_BYTES = 350 * 1024;
 
 const defaultRecipes = [
   {
@@ -969,18 +970,44 @@ function recipeFormDefaults(recipe = null, draft = null) {
   };
 }
 
-function cropImageToSquare(imageEl, cropState) {
+function canvasToJpegBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("图片压缩失败"));
+      },
+      "image/jpeg",
+      quality,
+    );
+  });
+}
+
+async function cropImageToSquare(imageEl, cropState) {
   const canvas = document.createElement("canvas");
-  const size = 720;
   const scale = cropState.baseScale * cropState.zoom;
   const sourceX = clamp(-cropState.offsetX / scale, 0, imageEl.naturalWidth);
   const sourceY = clamp(-cropState.offsetY / scale, 0, imageEl.naturalHeight);
   const sourceSize = clamp(cropState.frameSize / scale, 1, Math.min(imageEl.naturalWidth - sourceX, imageEl.naturalHeight - sourceY));
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(imageEl, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
-  return canvas.toDataURL("image/jpeg", 0.82);
+  const sizes = [720, 640, 560];
+  const qualities = [0.78, 0.7, 0.62, 0.54];
+  let smallestBlob = null;
+
+  for (const size of sizes) {
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(imageEl, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+    for (const quality of qualities) {
+      const blob = await canvasToJpegBlob(canvas, quality);
+      smallestBlob = blob;
+      if (blob.size <= RECIPE_IMAGE_TARGET_BYTES) {
+        return fileToDataUrl(blob);
+      }
+    }
+  }
+
+  return fileToDataUrl(smallestBlob);
 }
 
 function daysSince(dateString) {
@@ -1520,7 +1547,7 @@ function openRecipeSheet(recipe = null, draft = null) {
           ${recipeMedia(recipe, "image-preview", "菜谱图片预览", 'data-image-preview', values.image)}
         </div>
         <input name="image" type="file" accept="image/*" data-image-input />
-        <p class="muted">可以从手机相册选图，也可以直接拍照；留空则保留当前图片。</p>
+        <p class="muted">可以从手机相册选图，也可以直接拍照；图片会在上传前自动压缩。</p>
       </div>
       <div class="field">
         <label>标签</label>
@@ -1673,7 +1700,7 @@ view.addEventListener("change", (event) => {
   }
 });
 
-sheet.addEventListener("click", (event) => {
+sheet.addEventListener("click", async (event) => {
   if (event.target === sheet) closeSheet();
   const tagButton = event.target.closest("[data-form-tag]");
   if (tagButton) {
@@ -1699,9 +1726,17 @@ sheet.addEventListener("click", (event) => {
     const draft = imageCropState.draft || {};
     const recipe = imageCropState.recipeId ? recipeById(imageCropState.recipeId) : null;
     if (image && image.complete && image.naturalWidth && image.naturalHeight) {
-      const cropped = cropImageToSquare(image, imageCropState);
-      imageCropState = null;
-      openRecipeSheet(recipe, { ...draft, image: cropped });
+      applyCropButton.disabled = true;
+      applyCropButton.textContent = "正在压缩...";
+      try {
+        const cropped = await cropImageToSquare(image, imageCropState);
+        imageCropState = null;
+        openRecipeSheet(recipe, { ...draft, image: cropped });
+      } catch {
+        applyCropButton.disabled = false;
+        applyCropButton.textContent = "使用裁剪";
+        showToast("图片处理失败，请重新选择");
+      }
     }
     return;
   }

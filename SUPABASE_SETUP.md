@@ -28,6 +28,6 @@ create table if not exists public.kitchenmenu_snapshots (
 - The app loads the cloud snapshot first when available.
 - Local IndexedDB/localStorage remains as fallback for offline use.
 - Recipe and inventory saves write locally and then sync to the cloud endpoint.
-- Cropped recipe photos upload separately to Supabase Storage and the recipe stores the public image URL.
+- Cropped recipe photos are automatically compressed to about 350 KB or less, uploaded separately to Supabase Storage, and stored as public image URLs.
 - Opening a fresh browser never writes defaults back to the cloud.
 - Today plans and weekly menus stay local-only.
