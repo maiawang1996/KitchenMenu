@@ -792,9 +792,10 @@ function sectionHeader(title, meta = "", accent = "notebook", action = "") {
 function stockIllustration(name) {
   const value = String(name || "");
   if (value.includes("鸡蛋")) return `<img class="stock-art-image" src="./assets/stock-egg.png" alt="" aria-hidden="true" />`;
-  if (value.includes("番茄")) return `<img class="stock-art-image" src="./assets/stock-tomato.png" alt="" aria-hidden="true" />`;
-  if (value.includes("牛肉")) return `<img class="stock-art-image" src="./assets/stock-beef.png" alt="" aria-hidden="true" />`;
+  if (value.includes("番茄") || value.includes("西红柿")) return `<img class="stock-art-image" src="./assets/stock-tomato.png" alt="" aria-hidden="true" />`;
+  if (value.includes("肉")) return `<img class="stock-art-image" src="./assets/stock-beef.png" alt="" aria-hidden="true" />`;
   if (value.includes("洋葱")) return `<img class="stock-art-image" src="./assets/stock-onion.png" alt="" aria-hidden="true" />`;
+  if (value.includes("茄子")) return `<img class="stock-art-image" src="./assets/stock-eggplant.png" alt="" aria-hidden="true" />`;
   return doodleSvg("branch");
 }
 
@@ -812,6 +813,7 @@ function homePlanCard(entries) {
   }
   const items = entries.slice(0, 2).map((entry) => `
     <article class="home-plan-item" data-action="detail" data-id="${entry.recipe.id}">
+      <div class="home-plan-item-photo">${recipeMedia(entry.recipe, "favorite", entry.recipe.name)}</div>
       <div class="home-plan-item-copy">
         <strong>${entry.recipe.name}</strong>
         <span>${recipeTagText(entry.recipe)}</span>
