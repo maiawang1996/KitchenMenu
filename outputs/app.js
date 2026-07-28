@@ -12,7 +12,7 @@ const DB_KEY = "app";
 const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
 const CLOUD_IMAGE_ENDPOINT = "/api/image";
 const RECIPE_IMAGE_TARGET_BYTES = 350 * 1024;
-const RECIPE_TAG_OPTIONS = ["快菜", "慢菜", "宝贝"];
+const RECIPE_TAG_OPTIONS = ["快菜", "慢菜", "宝贝", "素", "荤素", "荤"];
 
 const defaultRecipes = [
   {
@@ -39,6 +39,13 @@ function cloneData(value) {
   return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
 }
 
+function parseIngredientList(value) {
+  return String(value || "")
+    .split(/[、,，;；\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizeRecipe(recipe) {
   if (!recipe) return recipe;
   const { minutes, ...rest } = recipe;
@@ -53,7 +60,9 @@ function normalizeRecipe(recipe) {
     ...rest,
     tag: tags[0] || "",
     tags,
-    ingredients: Array.isArray(rest.ingredients) ? rest.ingredients : [],
+    ingredients: (Array.isArray(rest.ingredients) ? rest.ingredients : [rest.ingredients]).flatMap((item) =>
+      parseIngredientList(item),
+    ),
     steps: Array.isArray(rest.steps) ? rest.steps : [],
   };
 }
@@ -995,12 +1004,7 @@ function getRecipeFormDraft(form) {
     name: formData.get("name").toString().trim(),
     tag: tags[0] || "",
     tags,
-    ingredients: formData
-      .get("ingredients")
-      .toString()
-      .split(/[、,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean),
+    ingredients: parseIngredientList(formData.get("ingredients")),
     steps: formData
       .get("steps")
       .toString()
@@ -1014,7 +1018,7 @@ function getRecipeFormDraft(form) {
 function recipeFormDefaults(recipe = null, draft = null) {
   return {
     name: draft?.name ?? recipe?.name ?? "",
-    tags: draft?.tags ?? (recipe ? recipeTags(recipe) : ["快菜"]),
+    tags: draft?.tags ?? (recipe ? recipeTags(recipe) : []),
     ingredients: draft?.ingredients ?? recipe?.ingredients ?? [],
     steps: draft?.steps ?? recipe?.steps ?? [],
     image: draft?.image ?? recipeImageSrc(recipe) ?? "",
@@ -1153,6 +1157,19 @@ async function clearTodayPlan() {
   showToast(`已取消：${current?.name || "今日计划"}`);
 }
 
+async function clearAllStock() {
+  if (!state.stock.length) {
+    showToast("库存已经是空的");
+    return;
+  }
+  if (!window.confirm("确定要清空全部库存吗？此操作无法撤销。")) return;
+  state.stock = [];
+  state.selectedIngredient = "";
+  const cloudResult = await saveApp({ syncCloud: true, sharedChanged: true });
+  render();
+  showToast(cloudResult.ok ? "库存已全部清空" : "库存已在本地清空，云端同步失败");
+}
+
 function openPlanRecipePicker() {
   const available = recipes.slice();
   const currentMeal = todayPlanRecipeId();
@@ -1256,7 +1273,6 @@ function renderToday() {
     .map((id) => ({ recipe: recipeById(id) }))
     .filter((entry) => entry.recipe);
   const pantryItems = state.stock;
-  const favorites = recipes.filter((recipe) => recipe.favorite).slice(0, 3);
   const recommendation = currentRecommendation().recipe;
 
   view.innerHTML = `
@@ -1270,13 +1286,6 @@ function renderToday() {
         ${sectionHeader("库存提醒", "PANTRY", "pantryBasket", '<button class="section-link" data-go="stock">全部库存 <span aria-hidden="true">›</span></button>')}
         <div class="pantry-carousel">
           ${pantryItems.map((item) => homePantryCard(item)).join("") || emptyIllustration("今天还没有库存", "把买回来的食材记一下。", "sprout")}
-        </div>
-      </section>
-
-      <section class="section">
-        ${sectionHeader("收藏", `${favorites.length} 道`, "favoriteBook", '<button class="section-link" data-go="recipes">查看全部 <span aria-hidden="true">›</span></button>')}
-        <div class="favorites-card">
-          ${favorites.map((recipe) => homeFavoriteRow(recipe)).join("") || emptyIllustration("还没有收藏菜谱", "看到喜欢的菜就先存起来。", "favoriteBook")}
         </div>
       </section>
 
@@ -1409,11 +1418,14 @@ function renderPlan() {
   `;
 }
 function mealSelect(index, selected) {
+  const orderedRecipes = [...recipes].sort(
+    (recipeA, recipeB) => Number(Boolean(recipeImageSrc(recipeB))) - Number(Boolean(recipeImageSrc(recipeA))),
+  );
   return `
     <label class="meal-row">
       <select data-plan-index="${index}" data-meal="meal">
         <option value="">未安排</option>
-        ${recipes.map((recipe) => `<option value="${recipe.id}" ${selected === recipe.id ? "selected" : ""}>${recipe.name}</option>`).join("")}
+        ${orderedRecipes.map((recipe) => `<option value="${recipe.id}" ${selected === recipe.id ? "selected" : ""}>${recipe.name}</option>`).join("")}
       </select>
     </label>
   `;
@@ -1449,7 +1461,10 @@ function renderStock() {
       <section class="section">
         <div class="section-head">
           ${sectionTitle("家里现有", "sprout")}
-          <button class="pill-btn" data-action="addStock">添加</button>
+          <div class="stock-head-actions">
+            <button class="stock-clear-btn" type="button" data-action="clearStock" ${state.stock.length ? "" : "disabled"}>一键清空</button>
+            <button class="pill-btn" type="button" data-action="addStock">添加</button>
+          </div>
         </div>
         <div class="stock-list editorial-stock-list">
           ${state.stock
@@ -1679,6 +1694,8 @@ function openStockSheet(stock = null) {
 
 function render() {
   document.body.dataset.tab = state.tab;
+  const addRecipeButton = document.querySelector("#addRecipeTop");
+  if (addRecipeButton) addRecipeButton.hidden = state.tab !== "recipes";
   view.scrollTop = 0;
   if (state.detailId) {
     renderRecipeDetail(state.detailId);
@@ -1787,6 +1804,7 @@ view.addEventListener("click", (event) => {
       }
     }
     if (action === "addStock") openStockSheet();
+    if (action === "clearStock") void clearAllStock();
     if (action === "editStock") {
       const stock = state.stock.find((item) => item.id === id || item.id === actionEl.dataset.stockId);
       if (stock) openStockSheet(stock);
@@ -1994,12 +2012,7 @@ sheet.addEventListener("submit", async (event) => {
     setRecipeSaveLoading(saveButton);
     const form = new FormData(event.target);
     const name = form.get("name").toString().trim();
-    const ingredients = form
-      .get("ingredients")
-      .toString()
-      .split(/[、,\n]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const ingredients = parseIngredientList(form.get("ingredients"));
     const steps = form
       .get("steps")
       .toString()
@@ -2029,8 +2042,8 @@ sheet.addEventListener("submit", async (event) => {
         id: recipeId,
         ...payload,
       });
-      state.tab = "today";
-      document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === "today"));
+      state.tab = "recipes";
+      document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === "recipes"));
     }
     const cloudOk = await saveApp({ syncCloud: true, sharedChanged: true });
     closeSheet();

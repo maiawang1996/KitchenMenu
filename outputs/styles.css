@@ -583,6 +583,10 @@ h3 {
   height: 20px;
 }
 
+#addRecipeTop[hidden] {
+  display: none;
+}
+
 .detail-cover {
   aspect-ratio: 4 / 3;
   border-radius: 26px;
@@ -848,7 +852,17 @@ h3 {
 }
 
 .tag-selector {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.tag-selector button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 2px;
+  border-radius: 13px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tag.baby {
@@ -884,6 +898,25 @@ h3 {
   min-height: 34px;
   padding: 0 12px;
   background: rgba(137, 122, 100, 0.06);
+}
+
+.stock-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stock-clear-btn {
+  padding: 6px 2px;
+  border: 0;
+  background: transparent;
+  color: #947b70;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stock-clear-btn:disabled {
+  opacity: 0.42;
 }
 
 .stock-list,
