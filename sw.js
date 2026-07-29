@@ -1,4 +1,4 @@
-const CACHE_NAME = "kitchenmenu-pwa-v32";
+const CACHE_NAME = "kitchenmenu-pwa-v35";
 const PRECACHE_URLS = [
   "/",
   "/index.html",
@@ -7,8 +7,8 @@ const PRECACHE_URLS = [
   "/app-icon-512.png",
   "/apple-touch-icon.png",
   "/outputs/index.html",
-  "/outputs/styles.css?v=20260728v",
-  "/outputs/app.js?v=20260728v",
+  "/outputs/styles.css?v=20260729c",
+  "/outputs/app.js?v=20260729c",
   "/outputs/fonts/lxgw-wenkai-screen.css",
   "/outputs/assets/home-plan-book.png",
   "/outputs/assets/stock-egg.png",
@@ -27,6 +27,7 @@ const PRECACHE_URLS = [
   "/outputs/assets/tomato-egg-jelly.png",
   "/outputs/assets/beef-potato-jelly.png",
   "/outputs/assets/family-dishes.png",
+  "/outputs/assets/home-kitchen-together.jpg",
 ];
 
 self.addEventListener("install", (event) => {

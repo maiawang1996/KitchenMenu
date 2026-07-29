@@ -931,7 +931,8 @@ h3 {
   gap: 10px;
 }
 
-.stock-clear-btn {
+.stock-clear-btn,
+.plan-reset-btn {
   padding: 6px 2px;
   border: 0;
   background: transparent;
@@ -940,7 +941,8 @@ h3 {
   font-weight: 700;
 }
 
-.stock-clear-btn:disabled {
+.stock-clear-btn:disabled,
+.plan-reset-btn:disabled {
   opacity: 0.42;
 }
 
@@ -1407,58 +1409,17 @@ h3 {
   line-height: 1;
 }
 
-.home-note {
-  display: grid;
-  grid-template-columns: 82px minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  min-height: 86px;
-  padding: 16px 18px;
-  border-radius: 20px;
-  background-color: #fbf8f0;
-  background-image:
-    linear-gradient(rgba(140, 125, 100, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(140, 125, 100, 0.05) 1px, transparent 1px);
-  background-size: 16px 16px;
-  box-shadow: var(--shadow);
+.home-kitchen-illustration {
+  overflow: hidden;
+  border-radius: 22px;
+  background: #f5efe5;
+  box-shadow: var(--shadow-card);
 }
 
-.home-note-art {
-  display: grid;
-  place-items: center;
-  width: 76px;
-  height: 62px;
-  color: #98a47f;
-}
-
-.home-note-art svg {
+.home-kitchen-illustration img {
+  display: block;
   width: 100%;
-  height: 100%;
-}
-
-.home-note-copy {
-  min-width: 0;
-}
-
-.home-note-copy h3 {
-  margin: 0 0 7px;
-  color: var(--ink);
-  font-size: 17px;
-  line-height: 1.3;
-  font-weight: 700;
-}
-
-.home-note-copy p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.home-note-arrow {
-  color: #a59374;
-  font-size: 22px;
-  line-height: 1;
+  height: auto;
 }
 
 .empty-illustrated {
@@ -1622,13 +1583,23 @@ h3 {
   box-shadow: inset 0 0 0 1px rgba(143, 128, 104, 0.08), 0 4px 12px rgba(74, 60, 43, 0.03);
 }
 
-.recipe-filter-row {
-  display: flex;
-  gap: 8px;
-  margin: 0;
+.recipe-filter-menu {
+  position: relative;
 }
 
-.recipe-filter-chip {
+.recipe-filter-menu > summary {
+  list-style: none;
+}
+
+.recipe-filter-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.recipe-filter-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   min-height: 40px;
   padding: 0 14px;
   border: 0;
@@ -1639,20 +1610,81 @@ h3 {
   font-size: 13px;
   font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(143, 128, 104, 0.08);
+  cursor: pointer;
 }
 
-.recipe-filter-chip.active {
-  background: rgba(214, 173, 166, 0.16);
-  color: #82645f;
-  box-shadow: inset 0 0 0 1px rgba(180, 137, 131, 0.2);
+.recipe-filter-trigger.active,
+.recipe-filter-menu[open] .recipe-filter-trigger {
+  background: var(--surface-green);
+  color: var(--sage-700);
+  box-shadow: inset 0 0 0 1px rgba(122, 139, 101, 0.18);
 }
 
-.recipe-filter-chip:focus {
+.recipe-filter-trigger:focus {
   outline: 0;
 }
 
-.recipe-filter-chip:focus-visible {
+.recipe-filter-trigger:focus-visible {
   box-shadow: inset 0 0 0 1px rgba(122, 139, 101, 0.34), 0 0 0 3px rgba(154, 166, 125, 0.12);
+}
+
+.recipe-filter-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 180ms ease;
+}
+
+.recipe-filter-menu[open] .recipe-filter-chevron {
+  transform: translateY(2px) rotate(225deg);
+}
+
+.recipe-filter-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 132px;
+  padding: 6px;
+  border: 1px solid rgba(111, 98, 78, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 253, 249, 0.98);
+  box-shadow: 0 12px 30px rgba(58, 50, 38, 0.1);
+  backdrop-filter: blur(12px);
+}
+
+.recipe-filter-option {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.recipe-filter-option.active {
+  background: var(--surface-green);
+  color: var(--sage-700);
+}
+
+.recipe-filter-check {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.recipe-filter-option.active .recipe-filter-check {
+  background: var(--sage-600);
 }
 
 .recipes-page .recipe-card-compact .recipe-thumb {

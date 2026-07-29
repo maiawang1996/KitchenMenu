@@ -140,7 +140,7 @@ function createDefaultState() {
   editingStockId: null,
   search: "",
   searchComposing: false,
-  babyOnly: false,
+  recipeTagFilter: "",
   recommendationIndex: 0,
   selectedIngredient: null,
   stock: [
@@ -877,20 +877,6 @@ function homeFavoriteRow(recipe) {
   `;
 }
 
-function dailyNoteShortcut(recipe) {
-  return `
-    <article class="home-note" data-go="journal">
-      <div class="home-note-art" aria-hidden="true">${doodleSvg("notePlant")}</div>
-      <div class="home-note-copy">
-        <h3>今日小记</h3>
-        <p>记录一点厨房的小确幸吧♡</p>
-      </div>
-      <div class="home-note-arrow" aria-hidden="true">${iconSvg("arrowRight")}</div>
-    </article>
-  `;
-}
-
-
 function emptyIllustration(title, text, doodle = "notebook") {
   return `
     <div class="card empty empty-illustrated">
@@ -1170,6 +1156,19 @@ async function clearAllStock() {
   showToast(cloudResult.ok ? "库存已全部清空" : "库存已在本地清空，云端同步失败");
 }
 
+async function resetWeekPlan() {
+  const hasPlannedRecipe = state.weekPlan.some((day) => Boolean(day.meal));
+  if (!hasPlannedRecipe) {
+    showToast("一周菜单已经是未安排状态");
+    return;
+  }
+  if (!window.confirm("确定要重置一周菜单吗？七天计划都会恢复为未安排。")) return;
+  state.weekPlan = state.weekPlan.map((day) => ({ ...day, meal: "" }));
+  await saveApp({ syncCloud: false });
+  renderPlan();
+  showToast("一周菜单已重置");
+}
+
 function openPlanRecipePicker() {
   const available = recipes.slice();
   const currentMeal = todayPlanRecipeId();
@@ -1273,8 +1272,6 @@ function renderToday() {
     .map((id) => ({ recipe: recipeById(id) }))
     .filter((entry) => entry.recipe);
   const pantryItems = state.stock;
-  const recommendation = currentRecommendation().recipe;
-
   view.innerHTML = `
     <div class="today-page home-page">
       <section class="section">
@@ -1289,8 +1286,8 @@ function renderToday() {
         </div>
       </section>
 
-      <section class="section">
-        ${dailyNoteShortcut(recommendation)}
+      <section class="section home-kitchen-illustration">
+        <img src="./assets/home-kitchen-together.jpg" alt="两个人一起在厨房做饭的手绘插画" />
       </section>
     </div>
   `;
@@ -1305,23 +1302,44 @@ function renderRecipes() {
   const query = normalizeSearchTerm(state.search);
   const filtered = recipes.filter((recipe) => {
     const matchesSearch = !query || recipeSearchText(recipe).includes(query);
-    const matchesBabyFilter = !state.babyOnly || recipeHasTag(recipe, "宝贝");
-    return matchesSearch && matchesBabyFilter;
+    const matchesTagFilter = !state.recipeTagFilter || recipeHasTag(recipe, state.recipeTagFilter);
+    return matchesSearch && matchesTagFilter;
   });
+  const filterOptions = [
+    { value: "", label: "全部菜谱" },
+    ...RECIPE_TAG_OPTIONS.map((tag) => ({ value: tag, label: tag })),
+  ];
   view.innerHTML = `
     <div class="page-shell journal-page recipes-page">
       <section class="section">
         ${sectionHeader("菜谱札记", `${filtered.length} 道`, "favoriteBook")}
         <div class="paper-card search-shell" aria-label="搜索与筛选">
           <input class="search" id="searchRecipe" value="${escapeHtml(state.search)}" placeholder="搜索菜名、食材或标签" />
-          <div class="recipe-filter-row" aria-label="菜谱筛选">
-            <button
-              class="recipe-filter-chip ${state.babyOnly ? "active" : ""}"
-              type="button"
-              data-action="toggleBabyFilter"
-              aria-pressed="${state.babyOnly}"
-            >宝贝</button>
-          </div>
+          <details class="recipe-filter-menu">
+            <summary class="recipe-filter-trigger ${state.recipeTagFilter ? "active" : ""}">
+              <span>筛选</span>
+              <span class="recipe-filter-chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="recipe-filter-popover" role="menu" aria-label="按标签筛选菜谱">
+              ${filterOptions
+                .map(
+                  ({ value, label }) => `
+                    <button
+                      class="recipe-filter-option ${state.recipeTagFilter === value ? "active" : ""}"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked="${state.recipeTagFilter === value}"
+                      data-action="filterRecipes"
+                      data-filter-tag="${escapeHtml(value)}"
+                    >
+                      <span>${escapeHtml(label)}</span>
+                      <span class="recipe-filter-check" aria-hidden="true"></span>
+                    </button>
+                  `,
+                )
+                .join("")}
+            </div>
+          </details>
         </div>
       </section>
 
@@ -1386,10 +1404,16 @@ function renderRecipeDetail(id) {
 
 function renderPlan() {
   pageTitle.textContent = "一周菜单";
+  const hasPlannedRecipe = state.weekPlan.some((day) => Boolean(day.meal));
   view.innerHTML = `
     <div class="page-shell journal-page plan-page">
       <section class="section">
-        ${sectionHeader("一周菜单", "WEEK PLAN", "calendar")}
+        ${sectionHeader(
+          "一周菜单",
+          "WEEK PLAN",
+          "calendar",
+          `<button class="plan-reset-btn" type="button" data-action="resetWeekPlan" ${hasPlannedRecipe ? "" : "disabled"}>一键重置</button>`,
+        )}
         <div class="plan-list editorial-plan-list">
           ${state.weekPlan
             .map(
@@ -1769,9 +1793,12 @@ view.addEventListener("click", (event) => {
   const quickEl = event.target.closest("[data-go]");
   const ingredientEl = event.target.closest("[data-ingredient]");
   const stockRowEl = event.target.closest("[data-stock-id]");
+  if (!event.target.closest(".recipe-filter-menu")) {
+    view.querySelector(".recipe-filter-menu[open]")?.removeAttribute("open");
+  }
 
   if (actionEl) {
-    const { action, id, recipeId } = actionEl.dataset;
+    const { action, id, recipeId, filterTag } = actionEl.dataset;
     if (action === "detail") {
       openDetail(id);
     }
@@ -1779,8 +1806,8 @@ view.addEventListener("click", (event) => {
       state.recommendationIndex += 1;
       render();
     }
-    if (action === "toggleBabyFilter") {
-      state.babyOnly = !state.babyOnly;
+    if (action === "filterRecipes") {
+      state.recipeTagFilter = filterTag || "";
       renderRecipes();
     }
     if (action === "backRecipes") {
@@ -1805,6 +1832,7 @@ view.addEventListener("click", (event) => {
     }
     if (action === "addStock") openStockSheet();
     if (action === "clearStock") void clearAllStock();
+    if (action === "resetWeekPlan") void resetWeekPlan();
     if (action === "editStock") {
       const stock = state.stock.find((item) => item.id === id || item.id === actionEl.dataset.stockId);
       if (stock) openStockSheet(stock);
