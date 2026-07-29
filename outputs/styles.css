@@ -1,3 +1,5 @@
+@import url("./fonts/lxgw-wenkai-screen.css");
+
 :root {
   color-scheme: light;
   --bg: #f3ece1;
@@ -11,7 +13,8 @@
   --shadow: 0 8px 22px rgba(74, 60, 43, 0.045);
   --shadow-lift: 0 1px 1px rgba(255, 255, 255, 0.55), 0 10px 30px rgba(74, 60, 43, 0.05);
   --shadow-card: 0 8px 24px rgba(58, 50, 38, 0.045);
-  font-family: "Klee One", "Yomogi", "Hannotate SC", "KaiTi", "STKaiti", cursive;
+  --font-journal: "LXGW WenKai Screen R", "Kaiti SC", "STKaiti", "PingFang SC", sans-serif;
+  font-family: var(--font-journal);
 }
 
 * {
@@ -30,6 +33,7 @@ body {
   color: var(--ink);
   letter-spacing: 0;
   font-family: inherit;
+  font-synthesis: weight;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
