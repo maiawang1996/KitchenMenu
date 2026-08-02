@@ -13,6 +13,7 @@ const CLOUD_SNAPSHOT_ENDPOINT = "/api/snapshot";
 const CLOUD_IMAGE_ENDPOINT = "/api/image";
 const RECIPE_IMAGE_TARGET_BYTES = 350 * 1024;
 const RECIPE_TAG_OPTIONS = ["快菜", "慢菜", "宝贝", "素", "荤素", "荤"];
+const WEEK_PLAN_DAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const defaultRecipes = [
   {
@@ -93,6 +94,14 @@ function normalizeWeekPlanDay(day = {}) {
   };
 }
 
+function normalizeWeekPlan(weekPlan = []) {
+  const normalized = (Array.isArray(weekPlan) ? weekPlan : []).slice(0, 7).map(normalizeWeekPlanDay);
+  return WEEK_PLAN_DAYS.map((date, index) => {
+    const day = normalized.find((item) => item.date === date) || normalized[index];
+    return { date, meal: day?.meal || "" };
+  });
+}
+
 function normalizeSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return snapshot;
   if (Array.isArray(snapshot.recipes)) {
@@ -109,6 +118,12 @@ function normalizeCloudSnapshot(snapshot) {
   }
   if (!Array.isArray(next.stock) && Array.isArray(next.state?.stock)) {
     next.stock = cloneData(next.state.stock);
+  }
+  if (!Array.isArray(next.weekPlan) && Array.isArray(next.state?.weekPlan)) {
+    next.weekPlan = cloneData(next.state.weekPlan);
+  }
+  if (Array.isArray(next.weekPlan)) {
+    next.weekPlan = normalizeWeekPlan(next.weekPlan);
   }
   return next;
 }
@@ -155,15 +170,7 @@ function createDefaultState() {
     { recipeId: "tomato-egg", date: "2026-07-09" },
     { recipeId: "beef-potato", date: "2026-07-06" },
   ],
-  weekPlan: [
-    { date: "周一", meal: "tomato-egg" },
-    { date: "周二", meal: "tomato-egg" },
-    { date: "周三", meal: "beef-potato" },
-    { date: "周四", meal: "tomato-egg" },
-    { date: "周五", meal: "beef-potato" },
-    { date: "周六", meal: "" },
-    { date: "周日", meal: "" },
-  ],
+  weekPlan: normalizeWeekPlan([]),
   purchased: new Set(["米饭"]),
   };
 }
@@ -438,6 +445,7 @@ function serializeCloudSnapshot() {
   return {
     recipes: cloneData(recipes).map((recipe) => normalizeRecipe(recipe)),
     stock: cloneData(state.stock),
+    weekPlan: normalizeWeekPlan(cloneData(state.weekPlan)),
     deletedRecipeIds: Array.from(deletedRecipeIds),
     savedAt: new Date().toISOString(),
   };
@@ -459,6 +467,9 @@ function cloudSnapshotPayload(snapshot, { stripRecipeImages = false } = {}) {
   if (!Array.isArray(payload.stock) && Array.isArray(payload.state?.stock)) {
     payload.stock = cloneData(payload.state.stock);
   }
+  if (!Array.isArray(payload.weekPlan) && Array.isArray(payload.state?.weekPlan)) {
+    payload.weekPlan = normalizeWeekPlan(cloneData(payload.state.weekPlan));
+  }
   delete payload.state;
   return payload;
 }
@@ -473,7 +484,7 @@ function applyLocalSnapshot(snapshot) {
     if (Array.isArray(snapshot.state.stock)) nextState.stock = cloneData(snapshot.state.stock);
     if (Array.isArray(snapshot.state.cooked)) nextState.cooked = cloneData(snapshot.state.cooked);
     if (Array.isArray(snapshot.state.weekPlan)) {
-      nextState.weekPlan = cloneData(snapshot.state.weekPlan).map(normalizeWeekPlanDay);
+      nextState.weekPlan = normalizeWeekPlan(cloneData(snapshot.state.weekPlan));
     }
     if (Array.isArray(snapshot.state.purchased)) nextState.purchased = new Set(snapshot.state.purchased);
   }
@@ -505,6 +516,9 @@ function applyCloudSnapshot(snapshot) {
   if (Array.isArray(snapshot.stock)) {
     state.stock = cloneData(snapshot.stock);
   }
+  if (Array.isArray(snapshot.weekPlan)) {
+    state.weekPlan = normalizeWeekPlan(cloneData(snapshot.weekPlan));
+  }
   deletedRecipeIds = new Set(Array.isArray(snapshot.deletedRecipeIds) ? snapshot.deletedRecipeIds : []);
   recipes = recipes.filter((recipe) => !deletedRecipeIds.has(recipe.id));
   pendingCloudSync = false;
@@ -517,6 +531,10 @@ function localHasRecipesMissingFromCloud(localSnapshot, cloudSnapshot) {
   const cloudIds = new Set(cloudSnapshot.recipes.map((recipe) => recipe.id));
   const cloudDeleted = new Set(Array.isArray(cloudSnapshot.deletedRecipeIds) ? cloudSnapshot.deletedRecipeIds : []);
   return localSnapshot.recipes.some((recipe) => !cloudIds.has(recipe.id) && !cloudDeleted.has(recipe.id));
+}
+
+function localPlanMissingFromCloud(localSnapshot, cloudSnapshot) {
+  return Array.isArray(localSnapshot?.state?.weekPlan) && !Array.isArray(cloudSnapshot?.weekPlan);
 }
 
 function mergeCloudIntoPendingLocal(cloudSnapshot) {
@@ -547,7 +565,9 @@ async function hydrateApp() {
   const cloudSharedTime = sharedSnapshotTime(cloudSnapshot);
   const needsRecoverySync =
     Boolean(localSnapshot) &&
-    (pendingCloudSync || localHasRecipesMissingFromCloud(localSnapshot, cloudSnapshot));
+    (pendingCloudSync ||
+      localHasRecipesMissingFromCloud(localSnapshot, cloudSnapshot) ||
+      localPlanMissingFromCloud(localSnapshot, cloudSnapshot));
 
   if (cloudSnapshot && !localSnapshot) {
     applyCloudSnapshot(cloudSnapshot);
@@ -1122,10 +1142,10 @@ async function addRecipeToTodayPlan(recipeId) {
     return;
   }
   plan.meal = recipeId;
-  await saveApp({ syncCloud: false });
+  const cloudResult = await saveApp({ syncCloud: true, sharedChanged: true });
   closeSheet();
   render();
-  showToast(`已加入今日菜单：${recipe.name}`);
+  showToast(cloudResult.ok ? `已加入今日菜单并同步云端：${recipe.name}` : `已加入今日菜单：${recipe.name}，云端同步失败`);
 }
 
 async function clearTodayPlan() {
@@ -1137,10 +1157,10 @@ async function clearTodayPlan() {
   }
   const current = recipeById(plan.meal);
   plan.meal = "";
-  const cloudResult = await saveApp({ syncCloud: false });
+  const cloudResult = await saveApp({ syncCloud: true, sharedChanged: true });
   closeSheet();
   render();
-  showToast(`已取消：${current?.name || "今日计划"}`);
+  showToast(cloudResult.ok ? `已取消并同步云端：${current?.name || "今日计划"}` : `已取消：${current?.name || "今日计划"}，云端同步失败`);
 }
 
 async function clearAllStock() {
@@ -1164,9 +1184,9 @@ async function resetWeekPlan() {
   }
   if (!window.confirm("确定要重置一周菜单吗？七天计划都会恢复为未安排。")) return;
   state.weekPlan = state.weekPlan.map((day) => ({ ...day, meal: "" }));
-  await saveApp({ syncCloud: false });
+  const cloudResult = await saveApp({ syncCloud: true, sharedChanged: true });
   renderPlan();
-  showToast("一周菜单已重置");
+  showToast(cloudResult.ok ? "一周菜单已重置并同步云端" : "一周菜单已在本地重置，云端同步失败");
 }
 
 function openPlanRecipePicker() {
@@ -1893,7 +1913,9 @@ view.addEventListener("change", (event) => {
     const day = state.weekPlan[Number(event.target.dataset.planIndex)];
     day[event.target.dataset.meal] = event.target.value;
     renderPlan();
-    void saveApp({ syncCloud: false });
+    void saveApp({ syncCloud: true, sharedChanged: true }).then((cloudResult) => {
+      if (!cloudResult.ok) showToast("一周菜单已保存在本地，云端同步失败");
+    });
   }
   if (event.target.matches("[data-shopping]")) {
     const name = event.target.dataset.shopping;
